@@ -2,7 +2,7 @@
 
 [![Version](https://img.shields.io/badge/Symcon-PHP--Modul-red.svg?style=flat-square)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
 [![Product](https://img.shields.io/badge/Symcon%20Version-6.4-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
-[![Version](https://img.shields.io/badge/Modul%20Version-7.0.20240908-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
+[![Version](https://img.shields.io/badge/Modul%20Version-7.2.20241220-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-green.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Actions](https://img.shields.io/github/actions/workflow/status/wilkware/LightAutomat/style.yml?branch=main&label=CheckStyle&style=flat-square)](https://github.com/Wilkware/LightAutomat/actions)
 
@@ -21,8 +21,8 @@ Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automat
 
 ### 1. Funktionsumfang
 
-* Überwacht und schaltet das Licht automatisch nach einer bestimmten Zeit wieder aus.
-* Bei Variablenänderung der Statusvariable (STATE) wird ein Timer gestartet.
+* Überwacht und schaltet das Licht(er) automatisch nach einer bestimmten Zeit wieder aus.
+* Bei Variablenänderung der Statusvariable(n) wird ein Timer gestartet.
 * Nach eingestellter Zeit wird der Staus wieder zurückgestellt ("STATE" = flase).
 * Sollte das Licht schon vorher manuell aus geschalten worden sein, wird der Timer deaktiviert.
 * Zusätzlich bzw. ausschließlich kann ein Script ausgeführt werden.
@@ -44,7 +44,7 @@ Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automat
 
 ### 4. Einrichten der Instanzen in IP-Symcon
 
-* Unter 'Instanz hinzufügen' ist das _Lichtautomat_-Modul (Alias: _Treppenautomat_) unter dem Hersteller '(Geräte)' aufgeführt.
+* Unter 'Instanz hinzufügen' ist das _Lichtautomat_-Modul unter dem Hersteller '(Geräte)' aufgeführt.
 
 __Konfigurationsseite__:
 
@@ -52,10 +52,14 @@ Einstellungsbereich:
 
 > Geräte ...
 
-Name                                             | Beschreibung
------------------------------------------------- | ---------------------------------
-Schaltervariable                                 | Quellvariable, über welche der Automat getriggert wird. Meistens im Kanal 1 von HomeMatic Geräten zu finden und ist vom Typ boolean und hat den Namen "STATE" (z.B: wenn man die Geräte mit dem HomeMatic Configurator anlegen lässt.).
-Bewegungsvariable                                | Statusvariable eines Bewegungsmelders (true = Anwesend; false = Abwesend).
+Name                 | Beschreibung
+-------------------- | ---------------------------------
+Geräteanzahl         | 'Ein Gerät' oder 'Mehrere Geräte' - Umschalten zwischen Variablenauswahl und Variablenliste.
+Schaltvariable*      | Zielvariable, die bei hinreichender Bedingung geschalten wird (true).
+Schaltvariablen*     | Zielvariablen, welche alle bei hinreichender Bedingung geschalten werden (true).
+Bewegungsvariable    | Statusvariable eines Bewegungsmelders (true = Anwesend; false = Abwesend).
+
+(*) abhängig von Auswahl der Geräteanzahl
 
 > Zeitsteuerung ...
 
@@ -105,6 +109,12 @@ Die Wartezeit kann auch über die Statusvariable "Einschaltdauer" so realisiert 
 Ein direkter Aufruf von öffentlichen Funktionen ist nicht notwendig!
 
 ### 8. Versionshistorie
+
+v7.2.20241220
+
+* _NEW_: Auswahl ob ein einzelnes oder mehrere Geräte/Lampen geschalten werden sollen
+* _FIX_: Alias-Namen gelöscht(Treppenautomat)
+* _FIX_: Dokumentation vereinheitlicht
 
 v7.1.20240920
 

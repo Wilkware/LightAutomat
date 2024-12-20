@@ -36,15 +36,25 @@ class LightAutomat extends IPSModule
         self::TIME_CLOCK    => ['~UnixTimestampTime', '', 1, 23, 82800],
     ];
 
+    // Devices constant
+    private const DEVICE_ONE = 0;
+    private const DEVICE_MULTIPLE = 1;
+
     // Min IPS Object ID
     private const IPS_MIN_ID = 10000;
 
+    /**
+     * In contrast to Construct, this function is called only once when creating the instance and starting IP-Symcon.
+     * Therefore, status variables and module properties which the module requires permanently should be created here.
+     */
     public function Create()
     {
         //Never delete this line!
         parent::Create();
         // Devices ...
+        $this->RegisterPropertyInteger('DeviceNumber', 0);
         $this->RegisterPropertyInteger('StateVariable', 0);
+        $this->RegisterPropertyString('StateVariables', '[]');
         $this->RegisterPropertyInteger('MotionVariable', 0);
         // Time Control ...
         $this->RegisterPropertyInteger('TimeUnit', 1);
@@ -68,7 +78,8 @@ class LightAutomat extends IPSModule
     }
 
     /**
-     * Destroy.
+     * This function is called when deleting the instance during operation and when updating via "Module Control".
+     * The function is not called when exiting IP-Symcon.
      */
     public function Destroy()
     {
@@ -76,101 +87,97 @@ class LightAutomat extends IPSModule
     }
 
     /**
-     * Configuration Form.
-     *
-     * @return JSON configuration string.
+     * Is executed when "Apply" is pressed on the configuration page and immediately after the instance has been created.
      */
-    public function GetConfigurationForm()
-    {
-        // Get Form
-        $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
-        // Read setup
-        $unit = $this->ReadPropertyInteger('TimeUnit');
-        // Debug output
-        $this->SendDebug(__FUNCTION__, 'unit=' . $unit);
-        // Set duration inputs
-        if ($unit < self::TIME_CLOCK) {
-            // Check duration
-            $suf = $this->Translate(self::TIME_UNIT[$unit][1]);
-            $min = self::TIME_UNIT[$unit][2];
-            $max = self::TIME_UNIT[$unit][3];
-            // Set min/max/suffix
-            $form['elements'][3]['items'][0]['items'][1]['minimum'] = $min;
-            $form['elements'][3]['items'][0]['items'][1]['maximum'] = $max;
-            $form['elements'][3]['items'][0]['items'][1]['suffix'] = $suf;
-            $form['elements'][3]['items'][0]['items'][1]['visible'] = true;
-        } else {
-            $form['elements'][3]['items'][0]['items'][2]['visible'] = true;
-        }
-        // Debug output
-        //$this->SendDebug(__FUNCTION__, $form);
-        return json_encode($form);
-    }
-
     public function ApplyChanges()
     {
         //Never delete this line!
         parent::ApplyChanges();
 
         //Delete all references in order to readd them
-        foreach ($this->GetReferenceList() as $referenceID) {
-            $this->UnregisterReference($referenceID);
+        foreach ($this->GetReferenceList() as $reference) {
+            $this->UnregisterReference($reference);
         }
 
         //Delete all registrations in order to readd them
-        foreach ($this->GetMessageList() as $senderID => $messages) {
+        foreach ($this->GetMessageList() as $sender => $messages) {
             foreach ($messages as $message) {
-                $this->UnregisterMessage($senderID, $message);
+                $this->UnregisterMessage($sender, $message);
             }
         }
 
         //Register references
-        $variable = $this->ReadPropertyInteger('StateVariable');
-        if (IPS_VariableExists($variable)) {
-            $this->RegisterReference($variable);
+        $devices = $this->ReadPropertyInteger('DeviceNumber');
+        if ($devices == self::DEVICE_ONE) {
+            $variable = $this->ReadPropertyInteger('StateVariable');
+            if ($variable >= self::IPS_MIN_ID) {
+                if (IPS_VariableExists($variable)) {
+                    $this->RegisterReference($variable);
+                } else {
+                    $this->SendDebug(__FUNCTION__, 'Variable does not exist: ' . $variable);
+                    $this->SetStatus(104);
+                    return;
+                }
+            }
+        } else {
+            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+            foreach ($variables as $variable) {
+                if ($variable['VariableID'] >= self::IPS_MIN_ID) {
+                    if (IPS_VariableExists($variable['VariableID'])) {
+                        $this->RegisterReference($variable['VariableID']);
+                        if ($this->GetVariableStatus($variable['VariableID']) != 'OK') {
+                            $this->SendDebug(__FUNCTION__, 'Variable(s) does not exist: ' . $variable['VariableID']);
+                            $this->SetStatus(104);
+                            return;
+                        }
+                    } else {
+                        $this->SendDebug(__FUNCTION__, 'Variable(s) does not exist: ' . $variable['VariableID']);
+                        $this->SetStatus(104);
+                        return;
+                    }
+                }
+            }
         }
         $variable = $this->ReadPropertyInteger('MotionVariable');
-        if (IPS_VariableExists($variable)) {
-            $this->RegisterReference($variable);
+        if ($variable >= self::IPS_MIN_ID) {
+            if (IPS_VariableExists($variable)) {
+                $this->RegisterReference($variable);
+            } else {
+                $this->SendDebug(__FUNCTION__, 'Motion variable does not exist: ' . $variable);
+                $this->SetStatus(104);
+                return;
+            }
         }
         $event = $this->ReadPropertyInteger('EventVariable');
-        if (IPS_EventExists($event)) {
-            $this->RegisterReference($event);
+        if ($event >= self::IPS_MIN_ID) {
+            if (IPS_EventExists($event)) {
+                $this->RegisterReference($event);
+            } else {
+                $this->SendDebug(__FUNCTION__, 'Event does not exist: ' . $event);
+                $this->SetStatus(104);
+                return;
+            }
         }
         $script = $this->ReadPropertyInteger('ScriptVariable');
-        if (IPS_ScriptExists($script)) {
-            $this->RegisterReference($script);
+        if ($script >= self::IPS_MIN_ID) {
+            if (IPS_ScriptExists($script)) {
+                $this->RegisterReference($script);
+            } else {
+                $this->SendDebug(__FUNCTION__, 'Script does not exist: ' . $script);
+                $this->SetStatus(104);
+                return;
+            }
         }
 
-        //Safty check
-        $variable = $this->ReadPropertyInteger('StateVariable');
-        if (!IPS_VariableExists($variable)) {
-            $this->SendDebug(__FUNCTION__, 'StateVariable: ' . $variable);
-            $this->SetStatus(104);
-            return;
-        }
-        $variable = $this->ReadPropertyInteger('MotionVariable');
-        if (($variable >= self::IPS_MIN_ID) && !IPS_VariableExists($variable)) {
-            $this->SendDebug(__FUNCTION__, 'MotionVariable: ' . $variable);
-            $this->SetStatus(104);
-            return;
-        }
-        $event = $this->ReadPropertyInteger('EventVariable');
-        if (($event >= self::IPS_MIN_ID) && !IPS_EventExists($event)) {
-            $this->SendDebug(__FUNCTION__, 'EventVariable: ' . $event);
-            $this->SetStatus(104);
-            return;
-        }
-        $script = $this->ReadPropertyInteger('ScriptVariable');
-        if (($script >= self::IPS_MIN_ID) && !IPS_ScriptExists($script)) {
-            $this->SendDebug(__FUNCTION__, 'ScriptVariable: ' . $script);
-            $this->SetStatus(104);
-            return;
-        }
-
-        //Register update messages = Create our trigger
-        if (IPS_VariableExists($this->ReadPropertyInteger('StateVariable'))) {
-            $this->RegisterMessage($this->ReadPropertyInteger('StateVariable'), VM_UPDATE);
+        // Register messages update  = Create our trigger
+        if ($devices == self::DEVICE_ONE) {
+            $variable = $this->ReadPropertyInteger('StateVariable');
+            $this->RegisterMessage($variable, VM_UPDATE);
+        } else {
+            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+            foreach ($variables as $variable) {
+                $this->RegisterMessage($variable['VariableID'], VM_UPDATE);
+            }
         }
 
         // Maintain variables
@@ -198,21 +205,86 @@ class LightAutomat extends IPSModule
     }
 
     /**
-     * MessageSink - internal SDK funktion.
+     * The content can be overwritten in order to transfer a self-created configuration page.
+     * This way, content can be generated dynamically.
+     * In this case, the "form.json" on the file system is completely ignored.
      *
-     * @param mixed $timeStamp Message timeStamp
-     * @param mixed $senderID Sender ID
-     * @param mixed $message Message type
-     * @param mixed $data data[0] = new value, data[1] = value changed, data[2] = old value, data[3] = timestamp
+     * @return JSON Content of the configuration page
      */
-    public function MessageSink($timeStamp, $senderID, $message, $data)
+    public function GetConfigurationForm()
     {
-        //$this->SendDebug(__FUNCTION__, 'SenderId: ' . $senderID . ' Data: ' . print_r($data, true), 0);
+        // Get Form
+        $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
+        // number of devices
+        $devices = $this->ReadPropertyInteger('DeviceNumber');
+        $form['elements'][2]['items'][1]['visible'] = ($devices === self::DEVICE_ONE);
+        $form['elements'][2]['items'][2]['visible'] = ($devices === self::DEVICE_MULTIPLE);
+        // device list (set status column)
+        $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+        foreach ($variables as $variable) {
+            $form['elements'][2]['items'][2]['values'][] = [
+                'Status' => $this->GetVariableStatus($variable['VariableID']),
+            ];
+        }
+        // time setup
+        $unit = $this->ReadPropertyInteger('TimeUnit');
+        // Debug output
+        $this->SendDebug(__FUNCTION__, 'unit=' . $unit);
+        // Set duration inputs
+        if ($unit < self::TIME_CLOCK) {
+            // Check duration
+            $suf = $this->Translate(self::TIME_UNIT[$unit][1]);
+            $min = self::TIME_UNIT[$unit][2];
+            $max = self::TIME_UNIT[$unit][3];
+            // Set min/max/suffix
+            $form['elements'][3]['items'][0]['items'][1]['minimum'] = $min;
+            $form['elements'][3]['items'][0]['items'][1]['maximum'] = $max;
+            $form['elements'][3]['items'][0]['items'][1]['suffix'] = $suf;
+            $form['elements'][3]['items'][0]['items'][1]['visible'] = true;
+        } else {
+            $form['elements'][3]['items'][0]['items'][2]['visible'] = true;
+        }
+        // Debug output
+        //$this->SendDebug(__FUNCTION__, $form);
+        return json_encode($form);
+    }
+
+    /**
+     * The content of the function can be overwritten in order to carry out own reactions to certain messages.
+     * The function is only called for registered MessageIDs/SenderIDs combinations.
+     *
+     * data[0] = new value
+     * data[1] = value changed?
+     * data[2] = old value
+     * data[3] = timestamp.
+     *
+     * @param mixed $timestamp Continuous counter timestamp
+     * @param mixed $sender Sender ID
+     * @param mixed $message ID of the message
+     * @param mixed $data Data of the message
+     */
+    public function MessageSink($timestamp, $sender, $message, $data)
+    {
+        //$this->SendDebug(__FUNCTION__, 'SenderId: ' . $sender . ' Data: ' . print_r($data, true), 0);
         switch ($message) {
             case VM_UPDATE:
+                // single or multiple
+                $variable = 0;
+                $devices = $this->ReadPropertyInteger('DeviceNumber');
+                if ($devices == self::DEVICE_ONE) {
+                    $variable = $this->ReadPropertyInteger('StateVariable');
+                } else {
+                    $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+                    foreach ($variables as $var) {
+                        if ($var['VariableID'] == $sender) {
+                            $variable = $var['VariableID'];
+                            break;
+                        }
+                    }
+                }
                 // Safty Check
-                if ($senderID != $this->ReadPropertyInteger('StateVariable')) {
-                    $this->SendDebug(__FUNCTION__, 'SenderID: ' . $senderID . ' unknown!');
+                if ($sender !== $variable) {
+                    $this->SendDebug(__FUNCTION__, 'SenderID: ' . $sender . ' unknown!');
                     break;
                 }
                 // Countinus operation?
@@ -233,25 +305,28 @@ class LightAutomat extends IPSModule
                         break;
                     }
                 }
-                // Switch state?
-                if ($data[0] == true && $data[1] == true) { // OnChange is TRUE => switched ON
-                    $this->SendDebug(__FUNCTION__, 'OnChange is TRUE - ON');
+                // Check of change
+                if ($data[0] == true && $data[1] == true) {
+                    // OnChange is TRUE => switched ON
+                    $this->SendDebug(__FUNCTION__, 'OnChange #' . $sender . ' is TRUE - ON');
                     $this->SetTimerInterval('TLA.Timer', $this->CalculateTimer());
-                } elseif ($data[0] == false && $data[1] == true) { // OnChange is FALSE => switched OFF
-                    $this->SendDebug(__FUNCTION__, 'OnChange is FALSE - OFF');
+                } elseif ($data[0] == false && $data[1] == true) {
+                    // OnChange is FALSE => switched OFF
+                    $this->SendDebug(__FUNCTION__, 'OnChange #' . $sender . ' is FALSE - OFF');
                     $this->SetTimerInterval('TLA.Timer', 0);
-                } else { // OnChange - no chenges!
-                    $this->SendDebug(__FUNCTION__, 'OnChange - nothing changed!');
+                } else {
+                    // OnChange - no chenges!
+                    // $this->SendDebug(__FUNCTION__, 'OnChange - nothing changed!');
                 }
                 break;
         }
     }
 
     /**
-     * RequestAction.
+     * Is called when, for example, a button is clicked in the visualization.
      *
-     *  @param string $ident Ident.
-     *  @param string $value Value.
+     *  @param string $ident Ident of the variable
+     *  @param string $value The value to be set
      */
     public function RequestAction($ident, $value)
     {
@@ -312,26 +387,50 @@ class LightAutomat extends IPSModule
      */
     private function Trigger()
     {
-        $sv = $this->ReadPropertyInteger('StateVariable');
-        if (GetValueBoolean($sv) == true) {
+        $shift = [];
+        // One or more devices?
+        $devices = $this->ReadPropertyInteger('DeviceNumber');
+        if ($devices == self::DEVICE_ONE) {
+            $variable = $this->ReadPropertyInteger('StateVariable');
+            if (($variable >= self::IPS_MIN_ID) && (IPS_VariableExists($variable))) {
+                if (GetValueBoolean($variable) == true) {
+                    $shift[] = $variable;
+                }
+            }
+        } else {
+            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+            foreach ($variables as $variable) {
+                if (($variable['VariableID'] >= self::IPS_MIN_ID) && (IPS_VariableExists($variable['VariableID']))) {
+                    if (GetValueBoolean($variable['VariableID']) == true) {
+                        $shift[] = $variable['VariableID'];
+                    }
+                }
+            }
+        }
+        if (!empty($shift)) {
             if ($this->ReadPropertyBoolean('OnlyScript') == false) {
                 $mid = $this->ReadPropertyInteger('MotionVariable');
                 if ($mid != 0 && GetValue($mid)) {
                     $this->SendDebug(__FUNCTION__, 'Motion detection aktive, still resume!');
                     return;
                 } else {
-                    $ret = @RequestAction($sv, false);
-                    if ($ret === false) {
-                        $this->SendDebug(__FUNCTION__, 'Device #' . $sv . ' could not be switched by RequestAction!');
-                        $ret = @SetValueBoolean($sv, false);
-                        if ($ret === false) {
-                            $this->SendDebug(__FUNCTION__, 'Device could not be switched by Boolean!');
+                    foreach ($shift as $var) {
+                        if (HasAction($var)) {
+                            $ret = @RequestAction($var, false);
+                            if ($ret === false) {
+                                $this->SendDebug(__FUNCTION__, 'Device #' . $var . ' could not be switched by RequestAction!');
+                            }
+                        } else {
+                            $ret = @SetValueBoolean($var, false);
+                            if ($ret === false) {
+                                $this->SendDebug(__FUNCTION__, 'Device could not be switched by Boolean!');
+                            }
                         }
-                    }
-                    if ($ret === false) {
-                        $this->LogMessage('Device could not be switched (UNREACH)!');
-                    } else {
-                        $this->SendDebug(__FUNCTION__, 'StateVariable (#' . $sv . ') switched to FALSE!');
+                        if ($ret === false) {
+                            $this->LogMessage('Device could not be switched (UNREACH)!');
+                        } else {
+                            $this->SendDebug(__FUNCTION__, 'Variable #' . $var . ' switched to FALSE!');
+                        }
                     }
                 }
             }
@@ -369,9 +468,28 @@ class LightAutomat extends IPSModule
             $this->SendDebug(__FUNCTION__, 'Value: nothing to do!');
             return;
         }
-        // Is Device State ON
-        $sv = $this->ReadPropertyInteger('StateVariable');
-        if (GetValueBoolean($sv) == true) {
+        // Is a device ON
+        $shift = [];
+        // One or more devices?
+        $devices = $this->ReadPropertyInteger('DeviceNumber');
+        if ($devices == self::DEVICE_ONE) {
+            $variable = $this->ReadPropertyInteger('StateVariable');
+            if (($variable >= self::IPS_MIN_ID) && (IPS_VariableExists($variable))) {
+                if (GetValueBoolean($variable) == true) {
+                    $shift[] = $variable;
+                }
+            }
+        } else {
+            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
+            foreach ($variables as $variable) {
+                if (($variable['VariableID'] >= self::IPS_MIN_ID) && (IPS_VariableExists($variable['VariableID']))) {
+                    if (GetValueBoolean($variable['VariableID']) == true) {
+                        $shift[] = $variable['VariableID'];
+                    }
+                }
+            }
+        }
+        if (!empty($shift)) {
             // Is a Timer active
             $interval = $this->GetTimerInterval('TriggerTimer');
             $this->SendDebug(__FUNCTION__, 'Timer: ' . $interval);
@@ -415,6 +533,43 @@ class LightAutomat extends IPSModule
     }
 
     /**
+     * Received the status of a given variable
+     *
+     * @param int $vid variable ID.
+     * @return string Status message
+     */
+    private function GetVariableStatus($vid)
+    {
+        if (!IPS_VariableExists($vid)) {
+            return $this->Translate('Missing');
+        } else {
+            $var = IPS_GetVariable($vid);
+            switch ($var['VariableType']) {
+                case VARIABLETYPE_BOOLEAN:
+                    if ($var['VariableCustomProfile'] != '') {
+                        $profile = $var['VariableCustomProfile'];
+                    } else {
+                        $profile = $var['VariableProfile'];
+                    }
+                    if (!IPS_VariableProfileExists($profile)) {
+                        return $this->Translate('Profile required');
+                    }
+                    if ($var['VariableCustomAction'] != 0) {
+                        $action = $var['VariableCustomAction'];
+                    } else {
+                        $action = $var['VariableAction'];
+                    }
+                    if (!($action > self::IPS_MIN_ID)) {
+                        return $this->Translate('Action required');
+                    }
+                    return 'OK';
+                default:
+                    return $this->Translate('Bool required');
+            }
+        }
+    }
+
+    /**
      * Creates a schedule plan.
      *
      * @param string $value instance ID.
@@ -425,5 +580,17 @@ class LightAutomat extends IPSModule
         if ($eid !== false) {
             $this->UpdateFormField('EventVariable', 'value', $eid);
         }
+    }
+
+    /**
+     * User has select an new number of devices.
+     *
+     * @param string $value select value.
+     */
+    private function OnDeviceNumber($value)
+    {
+        $this->SendDebug(__FUNCTION__, 'Value: ' . $value);
+        $this->UpdateFormField('StateVariable', 'visible', ($value == self::DEVICE_ONE));
+        $this->UpdateFormField('StateVariables', 'visible', ($value == self::DEVICE_MULTIPLE));
     }
 }

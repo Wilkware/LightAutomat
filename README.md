@@ -4,7 +4,7 @@
 [![Product](https://img.shields.io/badge/Symcon%20Version-6.4-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
 [![Version](https://img.shields.io/badge/Modul%20Version-7.2.20241220-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-green.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-[![Actions](https://img.shields.io/github/actions/workflow/status/wilkware/LightAutomat/style.yml?branch=main&label=CheckStyle&style=flat-square)](https://github.com/Wilkware/LightAutomat/actions)
+[![Actions](https://img.shields.io/github/actions/workflow/status/wilkware/LightAutomat/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/Wilkware/LightAutomat/actions)
 
 Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automatisch nach einer bestimmten Zeit wieder aus.
 

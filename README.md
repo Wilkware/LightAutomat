@@ -1,5 +1,6 @@
 # Lichtautomat (Light Automat)
 
+[![Home](https://img.shields.io/badge/Home-wilkware.de-0b1830.svg?style=flat-square)](https://wilkware.de/module/lichtautomat/)
 [![Version](https://img.shields.io/badge/Symcon-PHP--Modul-red.svg?style=flat-square)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
 [![Product](https://img.shields.io/badge/Symcon%20Version-6.4-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
 [![Version](https://img.shields.io/badge/Modul%20Version-7.2.20241220-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
@@ -13,11 +14,12 @@ Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automat
 1. [Funktionsumfang](#user-content-1-funktionsumfang)
 2. [Voraussetzungen](#user-content-2-voraussetzungen)
 3. [Installation](#user-content-3-installation)
-4. [Einrichten der Instanzen in IP-Symcon](#user-content-4-einrichten-der-instanzen-in-ip-symcon)
-5. [Statusvariablen und Profile](#user-content-5-statusvariablen-und-profile)
-6. [Visualisierung](#user-content-6-visualisierung)
-7. [PHP-Befehlsreferenz](#user-content-7-php-befehlsreferenz)
-8. [Versionshistorie](#user-content-8-versionshistorie)
+4. [Einrichtung](#user-content-4-einrichtung)
+5. [Statusvariablen](#user-content-5-statusvariablen)
+6. [Darstellungen](#user-content-6-darstellungen)
+7. [Visualisierung](#user-content-7-visualisierung)
+8. [Befehlsreferenz](#user-content-8-befehlsreferenz)
+9. [Versionshistorie](#user-content-9-versionshistorie)
 
 ### 1. Funktionsumfang
 
@@ -34,15 +36,15 @@ Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automat
 
 ### 2. Voraussetzungen
 
-* IP-Symcon ab Version 6.4
+* Symcon ab Version 6.4
 
 ### 3. Installation
 
 * Über den Modul Store das Modul _Lichtautomat_ installieren.
-* Alternativ Über das Modul-Control folgende URL hinzufügen.  
+* Alternativ über das Modul Control folgende URL hinzufügen.  
 `https://github.com/Wilkware/LightAutomat` oder `git://github.com/Wilkware/LightAutomat.git`
 
-### 4. Einrichten der Instanzen in IP-Symcon
+### 4. Einrichtung
 
 * Unter 'Instanz hinzufügen' ist das _Lichtautomat_-Modul unter dem Hersteller '(Geräte)' aufgeführt.
 
@@ -80,35 +82,39 @@ Starte Einschaltdauer bei eingeschaltem Licht und Aktivierung über Schaltplan |
 Variable für Einstellung der Einschaltdauer anlegen | Schalter, ob eine Statusvariable für Einschaltdauer angelegt werden soll.
 Variable für Aktivierung des Dauerbetriebes anlegen | Schalter, ob eine Statusvariable für Dauerbetrieb angelegt werden soll.
 
-### 5. Statusvariablen und Profile
+### 5. Statusvariablen
 
-Die Statusvariablen werden unter Berücksichtigung der erweiterten Einstellungen angelegt. Das Löschen einzelner kann zu Fehlfunktionen führen.
+Die Statusvariablen werden automatisch angelegt. Das Löschen einzelner kann zu Fehlfunktionen führen.  
+Die Variablen werden unter Berücksichtigung der erweiterten Einstellungen angelegt (Schalter für Einschaltdauer bzw. Dauerbetrieb).
 
-Name                 | Typ          | Beschreibung
--------------------- | ------------ | ----------------
-Dauerbetrieb         | Boolean      | Ein- und Ausschalten des Dauerbetriebes (z.B. bei Besuch oder Party's)
-Einschaltdauer       | Integer      | Dauer der Wartezeit in Abhängigkeit der eingestellten Zeiteinheit
-Zeitplan             | (Wochenplan) | Einstellen der Zeitpunkte für Aktivieren bzw. Deaktivieren des Automaten
+Name                 | Typ     | Beschreibung
+-------------------- | ------- | ------------------------------
+Dauerbetrieb         | Boolean | Ein- und Ausschalten des Dauerbetriebes (z.B. bei Besuch oder Party's)
+Einschaltdauer       | Integer | Dauer der Wartezeit in Abhängigkeit der eingestellten Zeiteinheit
 
-Folgende Profile werden angelegt:
+_Hinweis:_ Zusätzlich kann über den Button 'Zeitplan hinzufügen' ein Wochenplan (Zeitplan) angelegt werden, über den die Zeitpunkte für Aktivieren bzw. Deaktivieren des Automaten eingestellt werden.
 
-Name                 | Typ       | Beschreibung
--------------------- | --------- | ----------------
-TLA.Seconds          | Integer   | Zeitraum von 1 bis 59 Sekunden
-TLA.Minutes          | Integer   | Zeitraum von 1 bis 59 Minuten
-TLA.Hours            | Integer   | Zeitraum von 1 bis 23 Stunden
+### 6. Darstellungen
 
-### 6. Visualisierung
+Die Darstellungen werden direkt an den Statusvariablen hinterlegt, es werden keine Profile angelegt.
+
+Variable             | Darstellung   | Werte
+-------------------- | ------------- | ------------------------------
+Dauerbetrieb         | Schalter      | An / Aus
+Einschaltdauer       | Schieberegler | 1 – 59 Sekunden, 1 – 59 Minuten bzw. 1 – 23 Stunden (Schrittweite 1), je nach Zeiteinheit
+Einschaltdauer       | Datum/Uhrzeit | Uhrzeit (Stunden, Minuten, Sekunden), bei Zeiteinheit 'Uhrzeit'
+
+### 7. Visualisierung
 
 Es ist keine weitere Steuerung oder gesonderte Darstellung integriert.  
 Der Dauerbetrieb kann über die Statusvariable "Dauerbetrieb" in der Visualisierung realsiert werden.  
 Die Wartezeit kann auch über die Statusvariable "Einschaltdauer" so realisiert werden.
 
-### 7. PHP-Befehlsreferenz
+### 8. Befehlsreferenz
 
 Ein direkter Aufruf von öffentlichen Funktionen ist nicht notwendig!
 
-### 8. Versionshistorie
+### 9. Versionshistorie
 
 v7.2.20241220
 
@@ -188,7 +194,7 @@ v1.0.20161220
 
 ## Entwickler
 
-Seit nunmehr über 10 Jahren fasziniert mich das Thema Haussteuerung. In den letzten Jahren betätige ich mich auch intensiv in der IP-Symcon Community und steuere dort verschiedenste Skript und Module bei. Ihr findet mich dort unter dem Namen @pitti ;-)
+Seit nunmehr über 10 Jahren fasziniert mich das Thema Haussteuerung. In den letzten Jahren betätige ich mich auch intensiv in der Symcon Community und steuere dort verschiedenste Skript und Module bei. Ihr findet mich dort unter dem Namen @pitti ;-)
 
 [![GitHub](https://img.shields.io/badge/GitHub-@wilkware-181717.svg?style=for-the-badge&logo=github)](https://wilkware.github.io/)
 

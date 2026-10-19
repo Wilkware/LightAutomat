@@ -1,15 +1,15 @@
-# Lichtautomat (Light Automat)
+# 💡 Lichtautomat (Light Automat)
 
 [![Home](https://img.shields.io/badge/Home-wilkware.de-0b1830.svg?style=flat-square)](https://wilkware.de/module/lichtautomat/)
 [![Version](https://img.shields.io/badge/Symcon-PHP--Modul-red.svg?style=flat-square)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
-[![Product](https://img.shields.io/badge/Symcon%20Version-6.4-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
-[![Version](https://img.shields.io/badge/Modul%20Version-7.2.20241220-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
+[![Product](https://img.shields.io/badge/Symcon%20Version-8.1-blue.svg?style=flat-square)](https://www.symcon.de/produkt/)
+[![Version](https://img.shields.io/badge/Modul%20Version-8.0.20261019-orange.svg?style=flat-square)](https://github.com/Wilkware/LightAutomat)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-green.svg?style=flat-square)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Actions](https://img.shields.io/github/actions/workflow/status/wilkware/LightAutomat/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/Wilkware/LightAutomat/actions)
 
 Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automatisch nach einer bestimmten Zeit wieder aus.
 
-## Inhaltverzeichnis
+## Inhaltsverzeichnis
 
 1. [Funktionsumfang](#user-content-1-funktionsumfang)
 2. [Voraussetzungen](#user-content-2-voraussetzungen)
@@ -23,20 +23,22 @@ Das Modul Lichtautomat (Light Automat) überwacht und schaltet das Licht automat
 
 ### 1. Funktionsumfang
 
-* Überwacht und schaltet das Licht(er) automatisch nach einer bestimmten Zeit wieder aus.
-* Bei Variablenänderung der Statusvariable(n) wird ein Timer gestartet.
-* Nach eingestellter Zeit wird der Staus wieder zurückgestellt ("STATE" = flase).
-* Sollte das Licht schon vorher manuell aus geschalten worden sein, wird der Timer deaktiviert.
-* Zusätzlich bzw. ausschließlich kann ein Script ausgeführt werden.
-* Möglichkeit des manuellen Dauerbetriebes schaltbar über eine boolesche Variable, wenn __true__ wird kein Timer gestartet.
-* Hinterlegung eines Wochenplans zum gezielten Aktivieren bzw. Deaktivierung des Automaten.
-* Berücksichtigung von Bewegungsmelder, wenn dieser aktiv ist wird der Timer immer wieder erneuert.
-* Möglichkeit der Steuerung der Wartezeit über eigene Laufzeit-Variable (z.B. via WebFront).
-* Start der Wartezeit bei Aktivierung des Automaten via Wochenplan (Übergang Inaktiv zu Aktiv).
+* Überwacht ein oder mehrere Lichter (boolesche Schaltvariablen) und schaltet sie nach einer bestimmten Zeit automatisch wieder aus.
+* Beim Einschalten einer Schaltvariable wird ein Timer gestartet.
+* Nach Ablauf der eingestellten Zeit werden alle noch eingeschalteten Geräte ausgeschaltet.
+* Werden alle Geräte vorher manuell ausgeschaltet, wird der Timer deaktiviert.
+* Zusätzlich bzw. ausschließlich kann ein Skript ausgeführt werden.
+* Manueller Dauerbetrieb über eine schaltbare Statusvariable; ist er aktiv, wird kein Timer gestartet bzw. ein laufender Timer gestoppt.
+* Hinterlegung eines Wochenplans zum gezielten Aktivieren bzw. Deaktivieren des Automaten.
+* Berücksichtigung eines Bewegungsmelders: Solange Bewegung erkannt wird, wird nicht ausgeschaltet; endet die Bewegung, beginnt die Einschaltdauer neu.
+* Steuerung der Einschaltdauer über eine eigene Statusvariable (z. B. über die Visualisierung).
+* Optionale Anzeige des Ausschaltzeitpunktes als Statusvariable.
+* Start der Einschaltdauer bei Aktivierung des Automaten über den Wochenplan (Übergang inaktiv zu aktiv).
+* Diagnose über das Konfigurationsformular: zeigt alle Bedingungen und warum der Automat gerade schaltet bzw. nicht schaltet.
 
 ### 2. Voraussetzungen
 
-* Symcon ab Version 6.4
+* Symcon ab Version 8.1
 
 ### 3. Installation
 
@@ -52,69 +54,102 @@ __Konfigurationsseite__:
 
 Einstellungsbereich:
 
-> Geräte ...
+> 💡 Geräte ...
 
 Name                 | Beschreibung
 -------------------- | ---------------------------------
 Geräteanzahl         | 'Ein Gerät' oder 'Mehrere Geräte' - Umschalten zwischen Variablenauswahl und Variablenliste.
-Schaltvariable*      | Zielvariable, die bei hinreichender Bedingung geschalten wird (true).
-Schaltvariablen*     | Zielvariablen, welche alle bei hinreichender Bedingung geschalten werden (true).
-Bewegungsvariable    | Statusvariable eines Bewegungsmelders (true = Anwesend; false = Abwesend).
+Schaltvariable*      | Boolesche Zielvariable, die nach Ablauf der Einschaltdauer ausgeschaltet wird.
+Schaltvariablen*     | Boolesche Zielvariablen, welche alle nach Ablauf der Einschaltdauer ausgeschaltet werden. Die Spalte 'Zustand' zeigt, ob die Variable schaltbar ist.
+Bewegungsvariable    | Boolesche Statusvariable eines Bewegungsmelders (true = Bewegung; false = keine Bewegung).
 
 (*) abhängig von Auswahl der Geräteanzahl
 
-> Zeitsteuerung ...
+> ⏱️ Zeitsteuerung ...
 
 Name                                             | Beschreibung
 ------------------------------------------------ | ---------------------------------
-Zeiteinheit                                      | Bestimmt ob Dauer in Sekunden, Minuten, Stunden oder Uhrzeit (freie Zeitwahl) ausgewertet werden soll.
-Einschaltdauer                                   | Zeitdauer, bis das Licht(Aktor) wieder ausgeschaltet werden soll. Wird bei eigner Variable für Einschaltdauer (siehe Erweiterte Einstellungen) als Vorgabewert/Initialwert benutzt.
-Zeitplan                                         | Wochenprogram, welches den Lichtautomaten zeitgesteuert aktiviert bzw. deaktiviert.
-ZEITPLAN HINZUFÜGEN                              | Button zum Erzeugen und Hinzufügen eines Wochenprogrammes.
+Zeiteinheit                                      | Bestimmt ob die Dauer in Sekunden, Minuten, Stunden oder als Uhrzeit (freie Zeitwahl) ausgewertet werden soll.
+Einschaltdauer                                   | Zeitdauer, bis das Licht (Aktor) wieder ausgeschaltet werden soll. Bei eigener Variable für die Einschaltdauer (siehe Erweiterte Einstellungen) wird der Wert beim Anlegen sowie bei jeder Änderung in der Konfiguration in die Variable übernommen; ein über die Visualisierung gesetzter Wert bleibt sonst erhalten.
+Zeitplan                                         | Wochenplan, welcher den Lichtautomaten zeitgesteuert aktiviert bzw. deaktiviert.
+ZEITPLAN HINZUFÜGEN                              | Button zum Erzeugen und Hinzufügen eines Wochenplans.
 
-> Erweiterte Einstellungen ...
+> ⚙️ Erweiterte Einstellungen ...
 
 Name                                             | Beschreibung
 ------------------------------------------------ | ---------------------------------
-Gleichzeitiges Ausführen eines Scriptes          | Auswahl eines Skriptes, welches zusätzlich ausgeführt werden soll (IPS_ExecScript).
-Nur Script ausführen - kein Ausschaltvorgang     | Schalter, ob nur das Script ausgeführt werden soll.
-Starte Einschaltdauer bei eingeschaltem Licht und Aktivierung über Schaltplan | Schalter, ob nach Aktivierung über Wochenplan der Automat starten soll.
-Variable für Einstellung der Einschaltdauer anlegen | Schalter, ob eine Statusvariable für Einschaltdauer angelegt werden soll.
-Variable für Aktivierung des Dauerbetriebes anlegen | Schalter, ob eine Statusvariable für Dauerbetrieb angelegt werden soll.
+Gleichzeitiges Ausführen eines Skriptes          | Auswahl eines Skriptes, welches zusätzlich ausgeführt werden soll. Im Skript stehen `$_IPS['VARIABLE']` (erste eingeschaltete Schaltvariable) und `$_IPS['INSTANCE']` (Lichtautomat) zur Verfügung.
+Nur Skript ausführen - kein Ausschaltvorgang     | Schalter, ob nur das Skript ausgeführt werden soll.
+Schaltvariablen ohne Aktion direkt setzen        | Schaltvariablen ohne Aktion werden direkt gesetzt (SetValue); nur für Variablen, die zu keiner Instanz gehören.
+Starte Einschaltdauer bei eingeschaltetem Licht und Aktivierung über Wochenplan | Schalter, ob nach Aktivierung über den Wochenplan der Automat starten soll.
+Variable für Einstellung der Einschaltdauer anlegen | Schalter, ob eine Statusvariable für die Einschaltdauer angelegt werden soll.
+Variable für Aktivierung des Dauerbetriebes anlegen | Schalter, ob eine Statusvariable für den Dauerbetrieb angelegt werden soll.
+Variable für Anzeige des Ausschaltzeitpunktes anlegen | Schalter, ob eine Statusvariable mit dem Ausschaltzeitpunkt angelegt werden soll.
+
+__Hinweis:__ Bestehende Instanzen, die bisher eine Schaltvariable ohne Aktion verwendet haben, werden beim Update automatisch auf 'Schaltvariablen ohne Aktion direkt setzen' umgestellt.
+
+Aktionsbereich:
+
+> 🧪 Test ...
+
+Aktion          | Beschreibung
+--------------- | ---------------------------------
+ZUSTAND PRÜFEN  | Zeigt alle Bedingungen auf einen Blick (Geräte, Einschaltdauer, Timer, Dauerbetrieb, Wochenplan, Bewegungsmelder, Skript) und als Ergebnis, was der Automat gerade tun würde bzw. warum nicht. Fehler werden rot, Bedingungen, die den Start verhindern (z. B. Dauerbetrieb oder inaktiver Wochenplan), gelb hinterlegt. Es wird dabei nichts geschaltet.
 
 ### 5. Statusvariablen
 
 Die Statusvariablen werden automatisch angelegt. Das Löschen einzelner kann zu Fehlfunktionen führen.  
-Die Variablen werden unter Berücksichtigung der erweiterten Einstellungen angelegt (Schalter für Einschaltdauer bzw. Dauerbetrieb).
+Die Variablen werden unter Berücksichtigung der erweiterten Einstellungen angelegt.
 
-Name                 | Typ     | Beschreibung
--------------------- | ------- | ------------------------------
-Dauerbetrieb         | Boolean | Ein- und Ausschalten des Dauerbetriebes (z.B. bei Besuch oder Party's)
-Einschaltdauer       | Integer | Dauer der Wartezeit in Abhängigkeit der eingestellten Zeiteinheit
+Ident                | Name                | Typ     | Beschreibung
+-------------------- | ------------------- | ------- | ------------------------------
+continuous_operation | Dauerbetrieb        | Boolean | Ein- und Ausschalten des Dauerbetriebes (z. B. bei Besuch oder Partys)
+duty_cycle           | Einschaltdauer      | Integer | Dauer der Wartezeit in Abhängigkeit der eingestellten Zeiteinheit
+switch_off_time      | Ausschaltzeitpunkt  | Integer | Zeitpunkt, zu dem das Licht ausgeschaltet wird (0 = kein Timer aktiv)
 
-_Hinweis:_ Zusätzlich kann über den Button 'Zeitplan hinzufügen' ein Wochenplan (Zeitplan) angelegt werden, über den die Zeitpunkte für Aktivieren bzw. Deaktivieren des Automaten eingestellt werden.
+_Hinweis:_ Zusätzlich kann über den Button 'Zeitplan hinzufügen' ein Wochenplan (Ident `circuit_diagram`) angelegt werden, über den die Zeitpunkte für Aktivieren bzw. Deaktivieren des Automaten eingestellt werden.
 
 ### 6. Darstellungen
 
 Die Darstellungen werden direkt an den Statusvariablen hinterlegt, es werden keine Profile angelegt.
 
-Variable             | Darstellung   | Werte
--------------------- | ------------- | ------------------------------
-Dauerbetrieb         | Schalter      | An / Aus
-Einschaltdauer       | Schieberegler | 1 – 59 Sekunden, 1 – 59 Minuten bzw. 1 – 23 Stunden (Schrittweite 1), je nach Zeiteinheit
-Einschaltdauer       | Datum/Uhrzeit | Uhrzeit (Stunden, Minuten, Sekunden), bei Zeiteinheit 'Uhrzeit'
+Variable             | Darstellung    | Werte
+-------------------- | -------------- | ------------------------------
+Dauerbetrieb         | Schalter       | An / Aus
+Einschaltdauer       | Schieberegler  | 1 – 59 Sekunden, 1 – 59 Minuten bzw. 1 – 23 Stunden (Schrittweite 1), je nach Zeiteinheit
+Einschaltdauer       | Datum/Uhrzeit  | Uhrzeit (Stunden, Minuten, Sekunden), bei Zeiteinheit 'Uhrzeit'
+Ausschaltzeitpunkt   | Datum/Uhrzeit  | Uhrzeit (Stunden, Minuten, Sekunden)
 
 ### 7. Visualisierung
 
-Es ist keine weitere Steuerung oder gesonderte Darstellung integriert.  
-Der Dauerbetrieb kann über die Statusvariable "Dauerbetrieb" in der Visualisierung realsiert werden.  
-Die Wartezeit kann auch über die Statusvariable "Einschaltdauer" so realisiert werden.
+Es ist keine eigene Kachel integriert, die Instanz wird über die Standard-Kachel mit ihren Statusvariablen dargestellt.  
+Der Dauerbetrieb kann über die Statusvariable "Dauerbetrieb", die Wartezeit über die Statusvariable "Einschaltdauer" gesteuert werden.  
+Die Statusvariable "Ausschaltzeitpunkt" zeigt an, wann das Licht ausgeschaltet wird.
 
 ### 8. Befehlsreferenz
 
 Ein direkter Aufruf von öffentlichen Funktionen ist nicht notwendig!
 
 ### 9. Versionshistorie
+
+v8.0.20261019
+
+* _NEU_: Kompatibilität auf Symcon 8.1 angehoben, Code und interne Bibliotheken modernisiert
+* _NEU_: Konfigurationsformular überarbeitet und vereinheitlicht (inkl. Versionsanzeige und Statuscodes)
+* _NEU_: Option 'Schaltvariablen ohne Aktion direkt setzen' (nur Variablen, die zu keiner Instanz gehören), bestehende Instanzen werden automatisch migriert
+* _NEU_: Optionale Statusvariable 'Ausschaltzeitpunkt'
+* _NEU_: Bewegungsmelder startet die Einschaltdauer neu, sobald keine Bewegung mehr erkannt wird
+* _NEU_: Nach Beenden des Dauerbetriebes startet die Einschaltdauer, wenn noch Licht eingeschaltet ist
+* _NEU_: Aktionsbereich mit 'Zustand prüfen' zur Diagnose aller Bedingungen
+* _NEU_: Ausgeführtes Skript erhält die auslösende Variable und die Instanz
+* _FIX_: Start der Einschaltdauer bei Aktivierung über den Wochenplan funktionierte nicht
+* _FIX_: Bei mehreren Geräten wurde der Timer schon beim Ausschalten eines einzelnen Gerätes gestoppt
+* _FIX_: Aktivieren des Dauerbetriebes stoppt jetzt einen laufenden Timer
+* _FIX_: Dauerbetrieb wird beim Übernehmen bzw. Neustart nicht mehr zurückgesetzt
+* _FIX_: Schaltvariablen mit Darstellung statt Profil werden akzeptiert
+* _FIX_: Uhrzeit als Einschaltdauer unabhängig von der Zeitzone
+* _FIX_: Fehlende Variablen, Wochenpläne und Skripte abgesichert
+* _FIX_: Übersetzungen und Dokumentation überarbeitet
 
 v7.2.20241220
 
@@ -125,7 +160,7 @@ v7.2.20241220
 v7.1.20240920
 
 * _FIX_: Modulnamen bzw. Alias-Namen
-* _FIX_: Auswertung der verknüpften Variablen/Instanzen korriegiert
+* _FIX_: Auswertung der verknüpften Variablen/Instanzen korrigiert
 
 v7.0.20240908
 
@@ -179,7 +214,7 @@ v3.1.20170120
 
 v3.0.20170109
 
-* _NEU_: Dauerbetrieb miitels hinterlegter booleschen Variable, wenn _true_ wird kein Timer gestartet.
+* _NEU_: Dauerbetrieb mittels hinterlegter booleschen Variable, wenn _true_ wird kein Timer gestartet.
 * _NEU_: Modul mit Bewegungsmelder, wenn dieser aktiv ist wird der Timer immer wieder erneuert.
 * _NEU_: Über die Funktion _TLA_Duration(id, minuten)_ kann die Wartezeit via Skript (WebFront) gesetzt werden.
 

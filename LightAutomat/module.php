@@ -2,16 +2,17 @@
 
 declare(strict_types=1);
 
-/** Generell funktions  */
+// General helper functions
 require_once __DIR__ . '/../libs/_traits.php';
 
-/** Namespaced traits */
+// Namespaced traits
 use Wilkware\LightAutomat\DebugHelper;
 use Wilkware\LightAutomat\EventHelper;
+use Wilkware\LightAutomat\FormHelper;
 use Wilkware\LightAutomat\VariableHelper;
 
 /**
- *  CLASS LightAutomat
+ * CLASS LightAutomat
  */
 class LightAutomat extends IPSModuleStrict
 {
@@ -21,10 +22,11 @@ class LightAutomat extends IPSModuleStrict
 
     use DebugHelper;
     use EventHelper;
+    use FormHelper;
     use VariableHelper;
 
     // -------------------------------------------------------------------------
-    // Schedule Constant
+    // Schedule Constants
     // -------------------------------------------------------------------------
 
     /** @var int Schedule ON */
@@ -34,19 +36,19 @@ class LightAutomat extends IPSModuleStrict
     public const SCHEDULE_OFF = 2;
 
     /** @var string Schedule Name */
-    public const SCHEDULE_NAME = 'Zeitplan';
+    public const SCHEDULE_NAME = 'Schedule';
 
     /** @var string Schedule Identifier */
     public const SCHEDULE_IDENT = 'circuit_diagram';
 
     /** @var array<int,array<mixed>> Schedule Switch */
     public const SCHEDULE_SWITCH = [
-        self::SCHEDULE_ON  => ['Aktive', 0x00FF00, "IPS_RequestAction(\$_IPS['TARGET'], 'circuit_diagram', \$_IPS['ACTION']);"],
-        self::SCHEDULE_OFF => ['Inaktive', 0xFF0000, "IPS_RequestAction(\$_IPS['TARGET'], 'circuit_diagram', \$_IPS['ACTION']);"],
+        self::SCHEDULE_ON  => ['Active', 0x00FF00, "IPS_RequestAction(\$_IPS['TARGET'], 'circuit_diagram', \$_IPS['ACTION']);"],
+        self::SCHEDULE_OFF => ['Inactive', 0xFF0000, "IPS_RequestAction(\$_IPS['TARGET'], 'circuit_diagram', \$_IPS['ACTION']);"],
     ];
 
     // -------------------------------------------------------------------------
-    // Time Units Constant
+    // Time Unit Constants
     // -------------------------------------------------------------------------
 
     /** @var int Time in Seconds */
@@ -66,7 +68,46 @@ class LightAutomat extends IPSModuleStrict
         self::TIME_SECONDS => ['suffix' => ' seconds', 'min' => 1, 'max' => 59, 'factor' => 1],
         self::TIME_MINUTES => ['suffix' => ' minutes', 'min' => 1, 'max' => 59, 'factor' => 60],
         self::TIME_HOURS   => ['suffix' => ' hours',   'min' => 1, 'max' => 23, 'factor' => 3600],
-        self::TIME_CLOCK   => [], // keine Spinner-Werte nötig, eigenes Formularelement (Time)
+        self::TIME_CLOCK   => [], // no spinner values, uses its own form element (SelectTime)
+    ];
+
+    // -------------------------------------------------------------------------
+    // Status Constants
+    // -------------------------------------------------------------------------
+
+    /** @var int Switch variable missing */
+    private const STATUS_VARIABLE_MISSING = 201;
+
+    /** @var int Switch variable not switchable */
+    private const STATUS_VARIABLE_INVALID = 202;
+
+    /** @var int Motion variable missing */
+    private const STATUS_MOTION_MISSING = 203;
+
+    /** @var int Weekly schedule missing */
+    private const STATUS_SCHEDULE_MISSING = 204;
+
+    /** @var int Script missing */
+    private const STATUS_SCRIPT_MISSING = 205;
+
+    /** @var int Only script without a script */
+    private const STATUS_SCRIPT_REQUIRED = 206;
+
+    // -------------------------------------------------------------------------
+    // Presentation Constants
+    // -------------------------------------------------------------------------
+
+    /** @var array<string,mixed> Continuous operation (switch, icon via ICON_TRUE) */
+    private const LA_PRESENTATION_SWITCH = [
+        'ICON_TRUE'    => 'infinity',
+        'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH,
+    ];
+
+    /** @var array<string,mixed> Time of day (duty cycle as clock time, switch-off time); presentation has no icon */
+    private const LA_PRESENTATION_TIME = [
+        'DATE'         => 0,
+        'PRESENTATION' => VARIABLE_PRESENTATION_DATE_TIME,
+        'TIME'         => 2,
     ];
 
     // -------------------------------------------------------------------------
@@ -79,8 +120,20 @@ class LightAutomat extends IPSModuleStrict
     /** @var int Device Type: Multiple */
     private const DEVICE_MULTIPLE = 1;
 
-    /** @var int Min IPS Object ID */
+    /** @var int Min Symcon Object ID */
     private const IPS_MIN_ID = 10000;
+
+    /** @var string Ident of the switch-off timer */
+    private const TIMER_IDENT = 'TriggerTimer';
+
+    /** @var string Diagnosis row color for errors (red) */
+    private const ROW_ERROR = '#FFC0C0';
+
+    /** @var string Diagnosis row color for blocking conditions (yellow) */
+    private const ROW_BLOCKED = '#FFFFC0';
+
+    /** @var int Diagnosis result color for errors (red) */
+    private const RESULT_ERROR_COLOR = 0xFF0000;
 
     // -------------------------------------------------------------------------
     // Methods
@@ -98,13 +151,13 @@ class LightAutomat extends IPSModuleStrict
         parent::Create();
 
         // Devices ...
-        $this->RegisterPropertyInteger('DeviceNumber', 0);
+        $this->RegisterPropertyInteger('DeviceNumber', self::DEVICE_ONE);
         $this->RegisterPropertyInteger('StateVariable', 0);
         $this->RegisterPropertyString('StateVariables', '[]');
         $this->RegisterPropertyInteger('MotionVariable', 0);
 
         // Time Control ...
-        $this->RegisterPropertyInteger('TimeUnit', 1);
+        $this->RegisterPropertyInteger('TimeUnit', self::TIME_MINUTES);
         $this->RegisterPropertyInteger('Duration', 10);
         $this->RegisterPropertyString('Time', '{"hour":0,"minute":1,"second":0}');
         $this->RegisterPropertyInteger('EventVariable', 0);
@@ -115,24 +168,60 @@ class LightAutomat extends IPSModuleStrict
         $this->RegisterPropertyBoolean('CheckSchedule', true);
         $this->RegisterPropertyBoolean('CheckDuration', true);
         $this->RegisterPropertyBoolean('CheckPermanent', true);
+        $this->RegisterPropertyBoolean('CheckSwitchOff', false);
+        $this->RegisterPropertyBoolean('SettingsDirect', false);
 
-        // Tracks the TimeUnit that duty_cycle was last initialized with,
-        // so ApplyChanges can detect a unit change and recalculate the value.
-        $this->RegisterAttributeInteger('LastTimeUnit', -1);
+        // Tracks the configuration (unit, duration, time) duty_cycle was last initialized with,
+        // so ApplyChanges only overwrites a value set via visualization after a configuration change.
+        $this->RegisterAttributeString('LastDutyCycle', '');
 
         // Timer
-        $this->RegisterTimer('TLA.Timer', 0, 'IPS_RequestAction(' . $this->InstanceID . ', "delay_trigger", "");');
+        $this->RegisterTimer(self::TIMER_IDENT, 0, 'IPS_RequestAction(' . $this->InstanceID . ', "delay_trigger", "");');
+
+        // Wait for the kernel before accessing foreign variables
+        $this->RegisterMessage(0, IPS_KERNELSTARTED);
     }
 
     /**
-     * This function is called when deleting the instance during operation and when updating via "Module Control".
-     * The function is not called when exiting Symcon.
+     * Migrates the configuration of older versions.
      *
-     * @return void
+     * Up to v7 switch variables without an action were always set directly.
+     * Keep this behaviour for existing instances which rely on it.
+     *
+     * @param string $json Configuration data as JSON
+     *
+     * @return string Migrated configuration data as JSON
      */
-    public function Destroy(): void
+    public function Migrate(string $json): string
     {
-        parent::Destroy();
+        //Never delete this line!
+        parent::Migrate($json);
+
+        $data = json_decode($json);
+        if (!is_object($data) || !isset($data->configuration) || !is_object($data->configuration)) {
+            return $json;
+        }
+        $config = $data->configuration;
+        if (isset($config->SettingsDirect)) {
+            return $json;
+        }
+
+        $variables = [];
+        if ((int) ($config->DeviceNumber ?? self::DEVICE_ONE) === self::DEVICE_ONE) {
+            $variables[] = (int) ($config->StateVariable ?? 0);
+        } else {
+            $list = json_decode((string) ($config->StateVariables ?? '[]'), true);
+            foreach (is_array($list) ? $list : [] as $line) {
+                $variables[] = (int) ($line['VariableID'] ?? 0);
+            }
+        }
+        foreach ($variables as $vid) {
+            if (($vid >= self::IPS_MIN_ID) && IPS_VariableExists($vid) && !HasAction($vid)) {
+                $config->SettingsDirect = true;
+                return json_encode($data);
+            }
+        }
+        return $json;
     }
 
     /**
@@ -145,161 +234,112 @@ class LightAutomat extends IPSModuleStrict
         //Never delete this line!
         parent::ApplyChanges();
 
-        //Delete all references in order to readd them
-        foreach ($this->GetReferenceList() as $reference) {
-            $this->UnregisterReference($reference);
-        }
-
-        //Delete all registrations in order to readd them
-        foreach ($this->GetMessageList() as $sender => $messages) {
-            foreach ($messages as $message) {
-                $this->UnregisterMessage($sender, $message);
-            }
-        }
-
-        //Register references
-        $devices = $this->ReadPropertyInteger('DeviceNumber');
-        if ($devices == self::DEVICE_ONE) {
-            $variable = $this->ReadPropertyInteger('StateVariable');
-            if ($variable >= self::IPS_MIN_ID) {
-                if (IPS_VariableExists($variable)) {
-                    $this->RegisterReference($variable);
-                } else {
-                    $this->LogDebug(__FUNCTION__, 'Variable does not exist: ' . $variable);
-                    $this->SetStatus(104);
-                    return;
-                }
-            }
-        } else {
-            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-            foreach ($variables as $variable) {
-                if ($variable['VariableID'] >= self::IPS_MIN_ID) {
-                    if (IPS_VariableExists($variable['VariableID'])) {
-                        $this->RegisterReference($variable['VariableID']);
-                        if ($this->GetVariableStatus($variable['VariableID']) != 'OK') {
-                            $this->LogDebug(__FUNCTION__, 'Variable(s) does not exist: ' . $variable['VariableID']);
-                            $this->SetStatus(104);
-                            return;
-                        }
-                    } else {
-                        $this->LogDebug(__FUNCTION__, 'Variable(s) does not exist: ' . $variable['VariableID']);
-                        $this->SetStatus(104);
-                        return;
-                    }
-                }
-            }
-        }
-        $variable = $this->ReadPropertyInteger('MotionVariable');
-        if ($variable >= self::IPS_MIN_ID) {
-            if (IPS_VariableExists($variable)) {
-                $this->RegisterReference($variable);
-            } else {
-                $this->LogDebug(__FUNCTION__, 'Motion variable does not exist: ' . $variable);
-                $this->SetStatus(104);
-                return;
-            }
-        }
-        $event = $this->ReadPropertyInteger('EventVariable');
-        if ($event >= self::IPS_MIN_ID) {
-            if (IPS_EventExists($event)) {
-                $this->RegisterReference($event);
-            } else {
-                $this->LogDebug(__FUNCTION__, 'Event does not exist: ' . $event);
-                $this->SetStatus(104);
-                return;
-            }
-        }
-        $script = $this->ReadPropertyInteger('ScriptVariable');
-        if ($script >= self::IPS_MIN_ID) {
-            if (IPS_ScriptExists($script)) {
-                $this->RegisterReference($script);
-            } else {
-                $this->LogDebug(__FUNCTION__, 'Script does not exist: ' . $script);
-                $this->SetStatus(104);
-                return;
-            }
-        }
-
-        // Register messages update  = Create our trigger
-        if ($devices == self::DEVICE_ONE) {
-            $variable = $this->ReadPropertyInteger('StateVariable');
-            $this->RegisterMessage($variable, VM_UPDATE);
-        } else {
-            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-            foreach ($variables as $variable) {
-                $this->RegisterMessage($variable['VariableID'], VM_UPDATE);
-            }
-        }
-
         // Maintain variables
         $permanent = $this->ReadPropertyBoolean('CheckPermanent');
-        $this->MaintainVariable('continuous_operation', $this->Translate('Continuous operation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 0, $permanent);
+        $created = (@$this->GetIDForIdent('continuous_operation') === false);
+        $this->MaintainVariable('continuous_operation', $this->Translate('Continuous operation'), VARIABLETYPE_BOOLEAN, self::LA_PRESENTATION_SWITCH, 0, $permanent);
         if ($permanent) {
-            $this->SetValueBoolean('continuous_operation', false);
+            if ($created) {
+                $this->SetValueBoolean('continuous_operation', false);
+            }
             $this->EnableAction('continuous_operation');
         }
 
-        // Detect a TimeUnit change via attribute (works reliably across the
-        // structurally different Slider / Datum-Uhrzeit presentations)
+        // Detect a change of time unit, duration or time via attribute (works reliably across the
+        // structurally different slider / date-time presentations)
         $duration = $this->ReadPropertyBoolean('CheckDuration');
         $unit = $this->ReadPropertyInteger('TimeUnit');
-        $lastUnit = $this->ReadAttributeInteger('LastTimeUnit');
-        $unitChanged = ($lastUnit !== $unit);
-
+        $default = json_encode([$unit, $this->ReadPropertyInteger('Duration'), $this->ReadPropertyString('Time')]);
+        $defaultChanged = ($this->ReadAttributeString('LastDutyCycle') !== $default);
+        $created = (@$this->GetIDForIdent('duty_cycle') === false);
         if ($unit < self::TIME_CLOCK) {
-            // Sekunden/Minuten/Stunden: Schieberegler, actionfähig, kein Profil,
-            // Wert bleibt unverändert in der gewählten Einheit (keine Umrechnung)
-            $created = $this->MaintainVariable(
-                'duty_cycle',
-                $this->Translate('Duty cycle'),
-                VARIABLETYPE_INTEGER,
-                [
-                    'PRESENTATION'  => VARIABLE_PRESENTATION_SLIDER,
-                    'MIN'           => self::TIME_UNIT[$unit]['min'],
-                    'MAX'           => self::TIME_UNIT[$unit]['max'],
-                    'SUFFIX'        => $this->Translate(self::TIME_UNIT[$unit]['suffix']),
-                    'STEP_SIZE'     => 1.0,
-                    'ICON'          => 'clock',
-                ],
-                1,
-                $duration
-            );
+            $presentation = $this->TranslatePresentation([
+                'ICON'         => 'clock',
+                'MAX'          => self::TIME_UNIT[$unit]['max'],
+                'MIN'          => self::TIME_UNIT[$unit]['min'],
+                'PRESENTATION' => VARIABLE_PRESENTATION_SLIDER,
+                'STEP_SIZE'    => 1,
+                'SUFFIX'       => self::TIME_UNIT[$unit]['suffix'],
+            ]);
         } else {
-            // Uhrzeit: Datum/Uhrzeit-Darstellung (Stunde, Minute, Sekunde), ebenfalls actionfähig
-            $created = $this->MaintainVariable(
-                'duty_cycle',
-                $this->Translate('Duty cycle'),
-                VARIABLETYPE_INTEGER,
-                [
-                    'PRESENTATION' => VARIABLE_PRESENTATION_DATE_TIME,
-                    'DATE'         => 0,
-                    'TIME'         => 2,
-                    'ICON'         => 'clock',
-                ],
-                1,
-                $duration
-            );
+            $presentation = self::LA_PRESENTATION_TIME;
         }
-
-        $this->LogDebug(__FUNCTION__, 'Create duration: ' . $duration . ' Create permanent: ' . $permanent);
-
+        $this->MaintainVariable('duty_cycle', $this->Translate('Duty cycle'), VARIABLETYPE_INTEGER, $presentation, 1, $duration);
         if ($duration) {
-            // Nur bei Neuanlage ODER Wechsel der TimeUnit neu berechnen
-            if ($created || $unitChanged) {
+            // Date/time presentation has no icon parameter, so set the object icon once on creation
+            if ($created) {
+                IPS_SetIcon($this->GetIDForIdent('duty_cycle'), 'clock');
+            }
+            if ($created || $defaultChanged) {
                 if ($unit < self::TIME_CLOCK) {
                     $this->SetValueInteger('duty_cycle', $this->ReadPropertyInteger('Duration'));
                 } else {
+                    // Clock time as local timestamp on 02.01.1970 (date presentation shows only the time)
                     $time = json_decode($this->ReadPropertyString('Time'), true);
-                    // Same 82800s offset the module always used for the clock-based raw value -
-                    // kept unchanged since we cannot verify locally whether it compensates
-                    // for a timezone effect in the displayed value.
-                    $this->SetValueInteger('duty_cycle', 82800 + ($time['hour'] * 3600) + ($time['minute'] * 60) + $time['second']);
+                    $this->SetValueInteger('duty_cycle', (int) mktime((int) $time['hour'], (int) $time['minute'], (int) $time['second'], 1, 2, 1970));
                 }
             }
             $this->EnableAction('duty_cycle');
         }
-        $this->WriteAttributeInteger('LastTimeUnit', $unit);
-        $this->SetStatus(102);
+        $this->WriteAttributeString('LastDutyCycle', $default);
+
+        $switchOff = $this->ReadPropertyBoolean('CheckSwitchOff');
+        $created = (@$this->GetIDForIdent('switch_off_time') === false);
+        $this->MaintainVariable('switch_off_time', $this->Translate('Switch-off time'), VARIABLETYPE_INTEGER, self::LA_PRESENTATION_TIME, 2, $switchOff);
+        if ($switchOff && $created) {
+            IPS_SetIcon($this->GetIDForIdent('switch_off_time'), 'timer');
+        }
+
+        $this->LogDebug(__FUNCTION__, 'Duration variable: ' . ($duration ? 'true' : 'false') . ', permanent variable: ' . ($permanent ? 'true' : 'false'));
+
+        // Delete all variable registrations in order to readd them
+        foreach ($this->GetMessageList() as $sender => $messages) {
+            if (in_array(VM_UPDATE, $messages, true)) {
+                $this->UnregisterMessage($sender, VM_UPDATE);
+            }
+        }
+
+        // Foreign objects may not be available yet, ApplyChanges is called again on IPS_KERNELSTARTED
+        if (IPS_GetKernelRunlevel() !== KR_READY) {
+            return;
+        }
+
+        // Delete all references in order to readd them
+        foreach ($this->GetReferenceList() as $reference) {
+            $this->UnregisterReference($reference);
+        }
+
+        // Register references
+        $variables = $this->GetStateVariables();
+        $objects = array_merge($variables, [
+            $this->ReadPropertyInteger('MotionVariable'),
+            $this->ReadPropertyInteger('EventVariable'),
+            $this->ReadPropertyInteger('ScriptVariable'),
+        ]);
+        foreach ($objects as $object) {
+            if (($object >= self::IPS_MIN_ID) && IPS_ObjectExists($object)) {
+                $this->RegisterReference($object);
+            }
+        }
+
+        // Check configuration
+        $status = $this->CheckConfiguration($variables);
+        if ($status !== IS_ACTIVE) {
+            $this->StopTimer();
+            $this->SetStatus($status);
+            return;
+        }
+
+        // Register messages update = create our trigger
+        foreach ($variables as $variable) {
+            $this->RegisterMessage($variable, VM_UPDATE);
+        }
+        $motion = $this->ReadPropertyInteger('MotionVariable');
+        if ($motion >= self::IPS_MIN_ID) {
+            $this->RegisterMessage($motion, VM_UPDATE);
+        }
+
+        $this->SetStatus(IS_ACTIVE);
     }
 
     /**
@@ -311,44 +351,55 @@ class LightAutomat extends IPSModuleStrict
      */
     public function GetConfigurationForm(): string
     {
-        // Get Form
+        // Get form
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        // number of devices
+        // Extract version
+        $ins = IPS_GetInstance($this->InstanceID);
+        $mod = IPS_GetModule($ins['ModuleInfo']['ModuleID']);
+        $lib = IPS_GetLibrary($mod['LibraryID']);
+        $version = sprintf('v%s.%d', $lib['Version'], $lib['Build']);
+        $this->ModifyFormElement($form['actions'], 'Version', function (array &$element) use ($version): void
+        {
+            $element['caption'] = $version;
+        });
+
+        // Number of devices
         $devices = $this->ReadPropertyInteger('DeviceNumber');
-        $form['elements'][2]['items'][1]['visible'] = ($devices === self::DEVICE_ONE);
-        $form['elements'][2]['items'][2]['visible'] = ($devices === self::DEVICE_MULTIPLE);
+        $this->ModifyFormElement($form['elements'], 'StateVariable', function (array &$element) use ($devices): void
+        {
+            $element['visible'] = ($devices === self::DEVICE_ONE);
+        });
 
-        // device list (set status column)
-        $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-        foreach ($variables as $variable) {
-            $form['elements'][2]['items'][2]['values'][] = [
-                'Status' => $this->GetVariableStatus($variable['VariableID']),
-            ];
+        // Device list (set status column)
+        $values = [];
+        $list = json_decode($this->ReadPropertyString('StateVariables'), true);
+        foreach (is_array($list) ? $list : [] as $line) {
+            $values[] = ['Status' => $this->GetVariableStatus((int) ($line['VariableID'] ?? 0))];
         }
+        $this->ModifyFormElement($form['elements'], 'StateVariables', function (array &$element) use ($devices, $values): void
+        {
+            $element['visible'] = ($devices === self::DEVICE_MULTIPLE);
+            $element['values'] = $values;
+        });
 
-        // time setup
+        // Duration inputs depending on the time unit
         $unit = $this->ReadPropertyInteger('TimeUnit');
-
-        // Debug output
-        $this->LogDebug(__FUNCTION__, 'unit=' . $unit);
-
-        // Set duration inputs
         if ($unit < self::TIME_CLOCK) {
-            $suf = $this->Translate(self::TIME_UNIT[$unit]['suffix']);
-            $min = self::TIME_UNIT[$unit]['min'];
-            $max = self::TIME_UNIT[$unit]['max'];
-
-            $form['elements'][3]['items'][0]['items'][1]['minimum'] = $min;
-            $form['elements'][3]['items'][0]['items'][1]['maximum'] = $max;
-            $form['elements'][3]['items'][0]['items'][1]['suffix'] = $suf;
-            $form['elements'][3]['items'][0]['items'][1]['visible'] = true;
+            $this->ModifyFormElement($form['elements'], 'Duration', function (array &$element) use ($unit): void
+            {
+                $element['minimum'] = self::TIME_UNIT[$unit]['min'];
+                $element['maximum'] = self::TIME_UNIT[$unit]['max'];
+                $element['suffix'] = $this->Translate((string) self::TIME_UNIT[$unit]['suffix']);
+                $element['visible'] = true;
+            });
         } else {
-            $form['elements'][3]['items'][0]['items'][2]['visible'] = true;
+            $this->ModifyFormElement($form['elements'], 'Time', function (array &$element): void
+            {
+                $element['visible'] = true;
+            });
         }
 
-        // Debug output
-        //$this->LogDebug(__FUNCTION__, $form);
         return json_encode($form);
     }
 
@@ -370,62 +421,32 @@ class LightAutomat extends IPSModuleStrict
      */
     public function MessageSink(int $timestamp, int $sender, int $message, array $data): void
     {
-        //$this->LogDebug(__FUNCTION__, 'SenderId: ' . $sender . ' Data: ' . print_r($data, true), 0);
         switch ($message) {
+            case IPS_KERNELSTARTED:
+                $this->ApplyChanges();
+                break;
             case VM_UPDATE:
-                // single or multiple
-                $variable = 0;
-                $devices = $this->ReadPropertyInteger('DeviceNumber');
-                if ($devices == self::DEVICE_ONE) {
-                    $variable = $this->ReadPropertyInteger('StateVariable');
-                } else {
-                    $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-                    foreach ($variables as $var) {
-                        if ($var['VariableID'] == $sender) {
-                            $variable = $var['VariableID'];
-                            break;
-                        }
-                    }
+                if (!$data[1]) {
+                    break;
                 }
-
-                // Safty Check
-                if ($sender !== $variable) {
+                if ($sender === $this->ReadPropertyInteger('MotionVariable')) {
+                    $this->OnMotion((bool) $data[0]);
+                    break;
+                }
+                if (!in_array($sender, $this->GetStateVariables(), true)) {
                     $this->LogDebug(__FUNCTION__, 'SenderID: ' . $sender . ' unknown!');
                     break;
                 }
-
-                // Countinus operation?
-                $permanent = $this->ReadPropertyBoolean('CheckPermanent');
-                if ($permanent) {
-                    $state = $this->GetValue('continuous_operation');
-                    if ($state) {
-                        $this->LogDebug(__FUNCTION__, 'Continuous operation is ON!');
-                        break;
+                if ((bool) $data[0]) {
+                    $this->LogDebug(__FUNCTION__, 'Variable #' . $sender . ' switched ON');
+                    if (!$this->IsBlocked()) {
+                        $this->StartTimer();
                     }
-                }
-
-                // Weekly schedule!
-                $eid = $this->ReadPropertyInteger('EventVariable');
-                if ($eid != 0) {
-                    $state = $this->GetWeeklyScheduleInfo($eid);
-                    if ($state['WeekPlanActiv'] == 1 && $state['ActionID'] == 2) {
-                        $this->LogDebug(__FUNCTION__, 'Weekly schedule is stored but state is inaktive!');
-                        break;
-                    }
-                }
-
-                // Check of change
-                if ($data[0] == true && $data[1] == true) {
-                    // OnChange is TRUE => switched ON
-                    $this->LogDebug(__FUNCTION__, 'OnChange #' . $sender . ' is TRUE - ON');
-                    $this->SetTimerInterval('TLA.Timer', $this->CalculateTimer());
-                } elseif ($data[0] == false && $data[1] == true) {
-                    // OnChange is FALSE => switched OFF
-                    $this->LogDebug(__FUNCTION__, 'OnChange #' . $sender . ' is FALSE - OFF');
-                    $this->SetTimerInterval('TLA.Timer', 0);
                 } else {
-                    // OnChange - no chenges!
-                    // $this->LogDebug(__FUNCTION__, 'OnChange - nothing changed!');
+                    $this->LogDebug(__FUNCTION__, 'Variable #' . $sender . ' switched OFF');
+                    if (empty($this->GetSwitchedOnVariables())) {
+                        $this->StopTimer();
+                    }
                 }
                 break;
         }
@@ -436,74 +457,85 @@ class LightAutomat extends IPSModuleStrict
      *
      * @param string $ident Ident of the variable
      * @param mixed $value The value to be set
+     *
      * @return void
      */
     public function RequestAction(string $ident, mixed $value): void
     {
-        // Debug output
-        $this->LogDebug(__FUNCTION__, $ident . ' => ' . $value);
+        $this->LogDebug(__FUNCTION__, $ident . ' => ' . $this->Stringify($value));
         switch ($ident) {
             case 'continuous_operation':
-                $this->SetValueBoolean($ident, $value);
+                $this->SetValueBoolean($ident, (bool) $value);
+                if ((bool) $value) {
+                    $this->StopTimer();
+                } elseif (($this->GetTimerInterval(self::TIMER_IDENT) === 0) && !empty($this->GetSwitchedOnVariables()) && !$this->IsBlocked()) {
+                    $this->StartTimer();
+                }
                 break;
             case 'duty_cycle':
-                $this->SetValueInteger($ident, $value);
+                $this->SetValueInteger($ident, (int) $value);
                 break;
             case 'circuit_diagram':
-                $this->Schedule($value);
+                $this->Schedule((int) $value);
                 break;
             case 'delay_trigger':
                 $this->Trigger();
                 break;
+            case 'OnTimeUnit':
+                $this->OnTimeUnit((string) $value);
+                break;
+            case 'OnCreateSchedule':
+                $this->OnCreateSchedule();
+                break;
+            case 'OnDeviceNumber':
+                $this->OnDeviceNumber((int) $value);
+                break;
+            case 'OnCheckState':
+                $this->OnCheckState();
+                break;
             default:
-                // Ident == OnXxxxxYyyyy
-                eval('$this->' . $ident . '(\'' . $value . '\');');
+                $this->LogDebug(__FUNCTION__, 'Unknown ident: ' . $ident);
         }
     }
 
     /**
-     * Import death days data.
+     * User has selected a new time unit.
      *
-     * @param string $value unit and value of duration.
+     * @param string $value JSON encoded unit and value of duration.
      *
      * @return void
      */
-    protected function OnTimeUnit(string $value): void
+    private function OnTimeUnit(string $value): void
     {
-        $this->LogDebug(__FUNCTION__, $value);
-        $data = unserialize($value);
+        $data = json_decode($value, true);
+        if (!is_array($data)) {
+            return;
+        }
+        $unit = (int) ($data['unit'] ?? self::TIME_MINUTES);
 
-        if ($data['unit'] < self::TIME_CLOCK) {
-            // min/max/suffix
-            $suf = $this->Translate(self::TIME_UNIT[$data['unit']]['suffix']);
-            $min = self::TIME_UNIT[$data['unit']]['min'];
-            $max = self::TIME_UNIT[$data['unit']]['max'];
-
-            // Set min/max/suffix
+        if ($unit < self::TIME_CLOCK) {
+            $min = self::TIME_UNIT[$unit]['min'];
+            $max = self::TIME_UNIT[$unit]['max'];
             $this->UpdateFormField('Duration', 'minimum', $min);
             $this->UpdateFormField('Duration', 'maximum', $max);
-            $this->UpdateFormField('Duration', 'suffix', $suf);
+            $this->UpdateFormField('Duration', 'suffix', $this->Translate((string) self::TIME_UNIT[$unit]['suffix']));
 
-            // Check Value
-            $value = $data['value'];
-            if ($value > $max) {
-                $value = 10; // default: 10
-                $this->UpdateFormField('Duration', 'value', $value);
+            $duration = (int) ($data['value'] ?? 0);
+            if (($duration < $min) || ($duration > $max)) {
+                $this->UpdateFormField('Duration', 'value', 10);
             }
         }
 
-        $this->UpdateFormField('Duration', 'visible', ($data['unit'] != self::TIME_CLOCK));
-        $this->UpdateFormField('Time', 'visible', ($data['unit'] == self::TIME_CLOCK));
+        $this->UpdateFormField('Duration', 'visible', ($unit !== self::TIME_CLOCK));
+        $this->UpdateFormField('Time', 'visible', ($unit === self::TIME_CLOCK));
     }
 
     /**
-     * Creates a schedule plan.
-     *
-     * @param string $value instance ID.
+     * Creates a weekly schedule below the instance.
      *
      * @return void
      */
-    protected function OnCreateSchedule(string $value): void
+    private function OnCreateSchedule(): void
     {
         $eid = $this->CreateWeeklySchedule($this->InstanceID, self::SCHEDULE_NAME, self::SCHEDULE_IDENT, self::SCHEDULE_SWITCH, -1);
         if (IPS_EventExists($eid)) {
@@ -512,90 +544,236 @@ class LightAutomat extends IPSModuleStrict
     }
 
     /**
-     * User has select an new number of devices.
+     * User has selected a new number of devices.
      *
-     * @param string $value select value.
+     * @param int $value Selected value.
      *
      * @return void
      */
-    protected function OnDeviceNumber(string $value): void
+    private function OnDeviceNumber(int $value): void
     {
-        $this->LogDebug(__FUNCTION__, 'Value: ' . $value);
-        $this->UpdateFormField('StateVariable', 'visible', ($value == self::DEVICE_ONE));
-        $this->UpdateFormField('StateVariables', 'visible', ($value == self::DEVICE_MULTIPLE));
+        $this->UpdateFormField('StateVariable', 'visible', ($value === self::DEVICE_ONE));
+        $this->UpdateFormField('StateVariables', 'visible', ($value === self::DEVICE_MULTIPLE));
     }
 
     /**
-     * Trigger Timer
+     * Diagnosis: shows all conditions and what the automat would do right now (read-only, switches nothing).
+     *
+     * @return void
+     */
+    private function OnCheckState(): void
+    {
+        $yes = $this->Translate('yes');
+        $no = $this->Translate('no');
+        $unused = $this->Translate('not used');
+        $rows = [];
+
+        // Configuration (errors are marked in the detail rows)
+        $variables = $this->GetStateVariables();
+        $status = $this->CheckConfiguration($variables);
+
+        // Devices
+        if (empty($variables)) {
+            $rows[] = $this->DiagnosisRow('Device', $this->Translate('none selected'), self::ROW_ERROR);
+        }
+        foreach ($variables as $vid) {
+            if (!IPS_VariableExists($vid)) {
+                $rows[] = $this->DiagnosisRow('Device', '#' . $vid . ' ' . $this->Translate('Missing'), self::ROW_ERROR);
+                continue;
+            }
+            $state = $this->GetVariableStatus($vid);
+            if ($state === 'OK') {
+                $rows[] = $this->DiagnosisRow('Device', IPS_GetName($vid) . ': ' . (GetValueBoolean($vid) ? $this->Translate('ON') : $this->Translate('OFF')));
+            } else {
+                $rows[] = $this->DiagnosisRow('Device', IPS_GetName($vid) . ': ' . $state, self::ROW_ERROR);
+            }
+        }
+
+        // Duty cycle and timer
+        $source = ($this->ReadPropertyBoolean('CheckDuration') && (@$this->GetIDForIdent('duty_cycle') !== false)) ? 'from variable' : 'from configuration';
+        $interval = $this->CalculateTimer();
+        $rows[] = $this->DiagnosisRow('Duty cycle', $this->FormatDuration($interval) . ' (' . $this->Translate($source) . ')', ($interval > 0) ? '' : self::ROW_ERROR);
+        $running = ($this->GetTimerInterval(self::TIMER_IDENT) > 0);
+        $switchOff = (int) $this->GetBuffer('SwitchOff');
+        if ($running) {
+            $timer = ($switchOff > 0) ? sprintf($this->Translate('running, switch-off at %s'), date('H:i:s', $switchOff)) : $this->Translate('running');
+        } else {
+            $timer = $this->Translate('not running');
+        }
+        $rows[] = $this->DiagnosisRow('Timer', $timer);
+
+        // Continuous operation
+        if ($this->ReadPropertyBoolean('CheckPermanent')) {
+            $continuous = $this->IsContinuous();
+            $rows[] = $this->DiagnosisRow('Continuous operation', $continuous ? $this->Translate('ON') : $this->Translate('OFF'), $continuous ? self::ROW_BLOCKED : '');
+        } else {
+            $rows[] = $this->DiagnosisRow('Continuous operation', $unused);
+        }
+
+        // Weekly schedule
+        $eid = $this->ReadPropertyInteger('EventVariable');
+        if ($eid < self::IPS_MIN_ID) {
+            $rows[] = $this->DiagnosisRow('Weekly schedule', $unused);
+        } elseif (!IPS_EventExists($eid)) {
+            $rows[] = $this->DiagnosisRow('Weekly schedule', $this->Translate('Missing'), self::ROW_ERROR);
+        } else {
+            $info = $this->GetWeeklyScheduleInfo($eid);
+            $color = '';
+            if ($info['WeekPlanActiv'] !== 1) {
+                $schedule = $this->Translate('disabled (ignored)');
+            } elseif ($info['ActionID'] === self::SCHEDULE_OFF) {
+                $schedule = $this->Translate('Inactive');
+                $color = self::ROW_BLOCKED;
+            } else {
+                $schedule = $this->Translate('Active');
+            }
+            $schedule .= ' (' . $this->Translate('start on activation') . ': ' . ($this->ReadPropertyBoolean('CheckSchedule') ? $yes : $no) . ')';
+            $rows[] = $this->DiagnosisRow('Weekly schedule', $schedule, $color);
+        }
+
+        // Motion detector
+        $mid = $this->ReadPropertyInteger('MotionVariable');
+        $motion = false;
+        if ($mid < self::IPS_MIN_ID) {
+            $rows[] = $this->DiagnosisRow('Motion detector', $unused);
+        } elseif (!IPS_VariableExists($mid)) {
+            $rows[] = $this->DiagnosisRow('Motion detector', $this->Translate('Missing'), self::ROW_ERROR);
+        } else {
+            $motion = (bool) GetValue($mid);
+            $rows[] = $this->DiagnosisRow('Motion detector', $motion ? $this->Translate('motion detected') : $this->Translate('no motion'), $motion ? self::ROW_BLOCKED : '');
+        }
+
+        // Script
+        $onlyScript = $this->ReadPropertyBoolean('OnlyScript');
+        $sid = $this->ReadPropertyInteger('ScriptVariable');
+        if ($sid < self::IPS_MIN_ID) {
+            if ($onlyScript) {
+                $rows[] = $this->DiagnosisRow('Script', $this->Translate('none, but only the script should be executed!'), self::ROW_ERROR);
+            } else {
+                $rows[] = $this->DiagnosisRow('Script', $this->Translate('none'));
+            }
+        } elseif (!IPS_ScriptExists($sid)) {
+            $rows[] = $this->DiagnosisRow('Script', $this->Translate('Missing'), self::ROW_ERROR);
+        } else {
+            $rows[] = $this->DiagnosisRow('Script', sprintf($this->Translate($onlyScript ? '%s (instead of switching off)' : '%s (in addition to switching off)'), IPS_GetName($sid)));
+        }
+
+        // Result
+        $error = false;
+        $reason = $this->GetBlockReason();
+        if ($status !== IS_ACTIVE) {
+            $result = $this->Translate('The automat does not work, see the marked entries!');
+            $error = true;
+        } elseif ($interval <= 0) {
+            $result = $this->Translate('No duty cycle is started, because the duty cycle is 0!');
+            $error = true;
+        } elseif ($running) {
+            $time = ($switchOff > 0) ? date('H:i:s', $switchOff) : '?';
+            $result = sprintf($this->Translate($onlyScript ? 'The script is executed at %s.' : 'The devices are switched off at %s.'), $time);
+            if ($motion) {
+                $result .= ' ' . $this->Translate('Motion detected, the duty cycle is restarted when it expires.');
+            }
+        } elseif ($reason !== '') {
+            $result = sprintf($this->Translate('No duty cycle is started: %s'), $this->Translate($reason));
+        } elseif (!empty($this->GetSwitchedOnVariables())) {
+            $result = $this->Translate('A device is switched on, but no duty cycle is running.');
+        } else {
+            $result = $this->Translate('Switching on a device starts the duty cycle.');
+        }
+
+        $this->UpdateFormField('DiagnosisList', 'rowCount', count($rows));
+        $this->UpdateFormField('DiagnosisList', 'values', json_encode($rows));
+        $this->UpdateFormField('DiagnosisResult', 'caption', $this->Translate('Result') . ': ' . $result);
+        $this->UpdateFormField('DiagnosisResult', 'color', $error ? self::RESULT_ERROR_COLOR : 0);
+        $this->UpdateFormField('DiagnosisPopup', 'visible', true);
+    }
+
+    /**
+     * Builds a row of the diagnosis list.
+     *
+     * @param string $check Name of the check (untranslated)
+     * @param string $state State (already translated)
+     * @param string $color Row color (empty for transparent)
+     *
+     * @return array<string,string> List row
+     */
+    private function DiagnosisRow(string $check, string $state, string $color = ''): array
+    {
+        return ['Check' => $this->Translate($check), 'State' => $state, 'rowColor' => $color];
+    }
+
+    /**
+     * Formats a duration as HH:MM:SS.
+     *
+     * @param int $interval Duration in milliseconds
+     *
+     * @return string Formatted duration
+     */
+    private function FormatDuration(int $interval): string
+    {
+        $seconds = intdiv($interval, 1000);
+        return sprintf('%02d:%02d:%02d', intdiv($seconds, 3600), intdiv($seconds % 3600, 60), $seconds % 60);
+    }
+
+    /**
+     * Motion detector has changed its state.
+     *
+     * @param bool $motion New state of the motion detector.
+     *
+     * @return void
+     */
+    private function OnMotion(bool $motion): void
+    {
+        $this->LogDebug(__FUNCTION__, 'Motion: ' . ($motion ? 'true' : 'false'));
+        // Restart the duty cycle when the motion has ended
+        if (!$motion && ($this->GetTimerInterval(self::TIMER_IDENT) > 0)) {
+            $this->StartTimer();
+        }
+    }
+
+    /**
+     * Duty cycle has expired, switch off the devices and/or execute the script.
      *
      * @return void
      */
     private function Trigger(): void
     {
-        $shift = [];
-        // One or more devices?
-        $devices = $this->ReadPropertyInteger('DeviceNumber');
-        if ($devices == self::DEVICE_ONE) {
-            $variable = $this->ReadPropertyInteger('StateVariable');
-            if (($variable >= self::IPS_MIN_ID) && (IPS_VariableExists($variable))) {
-                if (GetValueBoolean($variable) == true) {
-                    $shift[] = $variable;
-                }
-            }
-        } else {
-            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-            foreach ($variables as $variable) {
-                if (($variable['VariableID'] >= self::IPS_MIN_ID) && (IPS_VariableExists($variable['VariableID']))) {
-                    if (GetValueBoolean($variable['VariableID']) == true) {
-                        $shift[] = $variable['VariableID'];
-                    }
-                }
+        $devices = $this->GetSwitchedOnVariables();
+        if (empty($devices)) {
+            $this->LogDebug(__FUNCTION__, 'All devices already OFF - stop timer!');
+            $this->StopTimer();
+            return;
+        }
+        if ($this->IsContinuous()) {
+            $this->LogDebug(__FUNCTION__, 'Continuous operation is ON - stop timer!');
+            $this->StopTimer();
+            return;
+        }
+        $motion = $this->ReadPropertyInteger('MotionVariable');
+        if (($motion >= self::IPS_MIN_ID) && IPS_VariableExists($motion) && (bool) GetValue($motion)) {
+            $this->LogDebug(__FUNCTION__, 'Motion detection active - restart duty cycle!');
+            $this->StartTimer();
+            return;
+        }
+        if (!$this->ReadPropertyBoolean('OnlyScript')) {
+            foreach ($devices as $vid) {
+                $this->SwitchOff($vid);
             }
         }
-        if (!empty($shift)) {
-            if ($this->ReadPropertyBoolean('OnlyScript') == false) {
-                $mid = $this->ReadPropertyInteger('MotionVariable');
-                if ($mid != 0 && GetValue($mid)) {
-                    $this->LogDebug(__FUNCTION__, 'Motion detection aktive, still resume!');
-                    return;
-                } else {
-                    foreach ($shift as $var) {
-                        if (HasAction($var)) {
-                            $ret = @RequestAction($var, false);
-                            if ($ret === false) {
-                                $this->LogDebug(__FUNCTION__, 'Device #' . $var . ' could not be switched by RequestAction!');
-                            }
-                        } else {
-                            $ret = @SetValueBoolean($var, false);
-                            if ($ret === false) {
-                                $this->LogDebug(__FUNCTION__, 'Device could not be switched by Boolean!');
-                            }
-                        }
-                        if ($ret === false) {
-                            $this->LogMessage('Device could not be switched (UNREACH)!');
-                        } else {
-                            $this->LogDebug(__FUNCTION__, 'Variable #' . $var . ' switched to FALSE!');
-                        }
-                    }
-                }
+        $script = $this->ReadPropertyInteger('ScriptVariable');
+        if ($script >= self::IPS_MIN_ID) {
+            if (IPS_ScriptExists($script)) {
+                $ret = IPS_RunScriptEx($script, ['VARIABLE' => $devices[0], 'INSTANCE' => $this->InstanceID]);
+                $this->LogDebug(__FUNCTION__, 'Script execute return value: ' . $this->Stringify($ret));
+            } else {
+                $this->LogDebug(__FUNCTION__, 'Script #' . $script . ' does not exist!');
             }
-            // Script ausführen
-            if ($this->ReadPropertyInteger('ScriptVariable') != 0) {
-                if (IPS_ScriptExists($this->ReadPropertyInteger('ScriptVariable'))) {
-                    $rs = IPS_RunScript($this->ReadPropertyInteger('ScriptVariable'));
-                    $this->LogDebug(__FUNCTION__, 'Script Execute Return Value: ' . $rs);
-                } else {
-                    $this->LogDebug(__FUNCTION__, 'Script #' . $this->ReadPropertyInteger('ScriptVariable') . ' does not exist!');
-                }
-            }
-        } else {
-            $this->LogDebug(__FUNCTION__, 'STATE already on FALSE - delete Timer!');
         }
-        $this->SetTimerInterval('TLA.Timer', 0);
+        $this->StopTimer();
     }
 
     /**
-     * Schedule Event
+     * Weekly schedule has switched.
      *
      * @param int $value Action value (ON=1, OFF=2)
      *
@@ -604,126 +782,269 @@ class LightAutomat extends IPSModuleStrict
     private function Schedule(int $value): void
     {
         $this->LogDebug(__FUNCTION__, 'Value: ' . $value);
-
-        // Check SChedule on Activate?
-        $check = $this->ReadPropertyBoolean('CheckSchedule');
-        if (!$check) {
-            $this->LogDebug(__FUNCTION__, 'Check: nothing to do!');
+        if (!$this->ReadPropertyBoolean('CheckSchedule') || ($value !== self::SCHEDULE_ON)) {
             return;
         }
-
-        // Is Activate ON
-        if ($value == self::SCHEDULE_OFF) {
-            $this->LogDebug(__FUNCTION__, 'Value: nothing to do!');
+        if ($this->IsContinuous() || empty($this->GetSwitchedOnVariables())) {
             return;
         }
+        if ($this->GetTimerInterval(self::TIMER_IDENT) === 0) {
+            $this->LogDebug(__FUNCTION__, 'State is ON and no timer active - start duty cycle!');
+            $this->StartTimer();
+        }
+    }
 
-        // Is a device ON
-        $shift = [];
+    /**
+     * Starts (or restarts) the duty cycle timer.
+     *
+     * @return int Timer interval in milliseconds (0 if no valid duty cycle is set)
+     */
+    private function StartTimer(): int
+    {
+        $interval = $this->CalculateTimer();
+        $this->LogDebug(__FUNCTION__, 'Interval: ' . $interval . 'ms');
+        if ($interval <= 0) {
+            $this->StopTimer();
+            return 0;
+        }
+        $this->SetTimerInterval(self::TIMER_IDENT, $interval);
+        $this->UpdateSwitchOffTime(time() + intdiv($interval, 1000));
+        return $interval;
+    }
 
-        // One or more devices?
-        $devices = $this->ReadPropertyInteger('DeviceNumber');
-        if ($devices == self::DEVICE_ONE) {
-            $variable = $this->ReadPropertyInteger('StateVariable');
-            if (($variable >= self::IPS_MIN_ID) && (IPS_VariableExists($variable))) {
-                if (GetValueBoolean($variable) == true) {
-                    $shift[] = $variable;
-                }
-            }
+    /**
+     * Stops the duty cycle timer.
+     *
+     * @return void
+     */
+    private function StopTimer(): void
+    {
+        $this->SetTimerInterval(self::TIMER_IDENT, 0);
+        $this->UpdateSwitchOffTime(0);
+    }
+
+    /**
+     * Remembers the switch-off time (buffer for the diagnosis) and updates the variable (if created).
+     *
+     * @param int $timestamp Switch-off time or 0 if no timer is active.
+     *
+     * @return void
+     */
+    private function UpdateSwitchOffTime(int $timestamp): void
+    {
+        $this->SetBuffer('SwitchOff', (string) $timestamp);
+        if ($this->ReadPropertyBoolean('CheckSwitchOff') && (@$this->GetIDForIdent('switch_off_time') !== false)) {
+            $this->SetValueInteger('switch_off_time', $timestamp);
+        }
+    }
+
+    /**
+     * Switches off a single device.
+     *
+     * @param int $vid Variable ID of the device.
+     *
+     * @return bool True if the device was switched off.
+     */
+    private function SwitchOff(int $vid): bool
+    {
+        if (HasAction($vid)) {
+            $ok = (@RequestAction($vid, false) !== false);
+        } elseif ($this->IsDirectSwitchable($vid)) {
+            $ok = @SetValueBoolean($vid, false);
         } else {
-            $variables = json_decode($this->ReadPropertyString('StateVariables'), true);
-            foreach ($variables as $variable) {
-                if (($variable['VariableID'] >= self::IPS_MIN_ID) && (IPS_VariableExists($variable['VariableID']))) {
-                    if (GetValueBoolean($variable['VariableID']) == true) {
-                        $shift[] = $variable['VariableID'];
-                    }
-                }
+            $ok = false;
+        }
+        if ($ok) {
+            $this->LogDebug(__FUNCTION__, 'Variable #' . $vid . ' switched OFF');
+        } else {
+            $this->LogDebug(__FUNCTION__, 'Variable #' . $vid . ' could not be switched!');
+            $this->LogMessage(sprintf($this->Translate('Device #%d could not be switched off!'), $vid), KL_WARNING);
+        }
+        return $ok;
+    }
+
+    /**
+     * Checks whether continuous operation is active.
+     *
+     * @return bool True if continuous operation is active.
+     */
+    private function IsContinuous(): bool
+    {
+        return $this->ReadPropertyBoolean('CheckPermanent') && (@$this->GetIDForIdent('continuous_operation') !== false) && (bool) $this->GetValue('continuous_operation');
+    }
+
+    /**
+     * Checks whether the automat is blocked by continuous operation or the weekly schedule.
+     *
+     * @return bool True if no duty cycle should be started.
+     */
+    private function IsBlocked(): bool
+    {
+        $reason = $this->GetBlockReason();
+        if ($reason !== '') {
+            $this->LogDebug(__FUNCTION__, $reason);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the reason why the automat is blocked.
+     *
+     * @return string Untranslated reason or empty string if not blocked.
+     */
+    private function GetBlockReason(): string
+    {
+        if ($this->IsContinuous()) {
+            return 'Continuous operation is active!';
+        }
+        $eid = $this->ReadPropertyInteger('EventVariable');
+        if (($eid >= self::IPS_MIN_ID) && IPS_EventExists($eid)) {
+            $state = $this->GetWeeklyScheduleInfo($eid);
+            if (($state['WeekPlanActiv'] === 1) && ($state['ActionID'] === self::SCHEDULE_OFF)) {
+                return 'Weekly schedule is inactive!';
             }
         }
-        if (!empty($shift)) {
-            // Is a Timer active
-            $interval = $this->GetTimerInterval('TriggerTimer');
-            $this->LogDebug(__FUNCTION__, 'Timer: ' . $interval);
-            if ($interval == 0) {
-                $this->LogDebug(__FUNCTION__, 'State is TRUE and no Timer ON');
-                $this->SetTimerInterval('TriggerTimer', $this->CalculateTimer());
-            }
-        }
+        return '';
     }
 
     /**
      * Calculate duration timer.
      *
-     * @return int Timer intervall in milliseconds
+     * @return int Timer interval in milliseconds
      */
     private function CalculateTimer(): int
     {
-        $interval = 0;
         $unit = $this->ReadPropertyInteger('TimeUnit');
+        $useVariable = $this->ReadPropertyBoolean('CheckDuration') && (@$this->GetIDForIdent('duty_cycle') !== false);
 
-        // Use internal or external variable
-        $useVariable = $this->ReadPropertyBoolean('CheckDuration');
-
-        if ($useVariable) {
-            // duty_cycle is stored in the currently selected unit (Slider) or as
-            // a real clock time (Datum/Uhrzeit) - no unit-independent shortcut possible
-            if ($unit < self::TIME_CLOCK) {
-                $time = $this->GetValue('duty_cycle');
-                $interval = 1000 * self::TIME_UNIT[$unit]['factor'] * $time;
-            } else {
-                $vid = $this->GetIDForIdent('duty_cycle');
-                $time = explode(':', GetValueFormatted($vid));
-                $interval = 1000 * (intval($time[0]) * 3600 + (intval($time[1]) * 60) + intval($time[2]));
-            }
-        } else {
-            // The "Duration" or "Time" property is available in the selected unit
-            if ($unit < self::TIME_CLOCK) {
-                $time = $this->ReadPropertyInteger('Duration');
-                $interval = 1000 * self::TIME_UNIT[$unit]['factor'] * $time;
-            } else {
-                $time = json_decode($this->ReadPropertyString('Time'), true);
-                $interval = 1000 * (intval($time['hour']) * 3600 + (intval($time['minute']) * 60) + intval($time['second']));
-            }
+        if ($unit < self::TIME_CLOCK) {
+            $time = $useVariable ? (int) $this->GetValue('duty_cycle') : $this->ReadPropertyInteger('Duration');
+            return 1000 * (int) self::TIME_UNIT[$unit]['factor'] * $time;
         }
-
-        return $interval;
+        if ($useVariable) {
+            // Only the local time of day of the timestamp is relevant
+            $ts = (int) $this->GetValue('duty_cycle');
+            return 1000 * ((int) date('G', $ts) * 3600 + (int) date('i', $ts) * 60 + (int) date('s', $ts));
+        }
+        $time = json_decode($this->ReadPropertyString('Time'), true);
+        return 1000 * ((int) $time['hour'] * 3600 + (int) $time['minute'] * 60 + (int) $time['second']);
     }
 
     /**
-     * Received the status of a given variable
+     * Returns the configured switch variables (single or multiple devices).
      *
-     * @param int $vid variable ID.
+     * @return array<int> Variable IDs
+     */
+    private function GetStateVariables(): array
+    {
+        if ($this->ReadPropertyInteger('DeviceNumber') === self::DEVICE_ONE) {
+            $variable = $this->ReadPropertyInteger('StateVariable');
+            return ($variable >= self::IPS_MIN_ID) ? [$variable] : [];
+        }
+        $variables = [];
+        $list = json_decode($this->ReadPropertyString('StateVariables'), true);
+        foreach (is_array($list) ? $list : [] as $line) {
+            $variable = (int) ($line['VariableID'] ?? 0);
+            if ($variable >= self::IPS_MIN_ID) {
+                $variables[] = $variable;
+            }
+        }
+        return array_values(array_unique($variables));
+    }
+
+    /**
+     * Returns all configured switch variables which are currently switched on.
      *
-     * @return string Status message
+     * @return array<int> Variable IDs
+     */
+    private function GetSwitchedOnVariables(): array
+    {
+        $variables = [];
+        foreach ($this->GetStateVariables() as $vid) {
+            if (IPS_VariableExists($vid) && (IPS_GetVariable($vid)['VariableType'] === VARIABLETYPE_BOOLEAN) && GetValueBoolean($vid)) {
+                $variables[] = $vid;
+            }
+        }
+        return $variables;
+    }
+
+    /**
+     * Checks the configuration and returns the resulting instance status.
+     *
+     * @param array<int> $variables Configured switch variables.
+     *
+     * @return int Status code
+     */
+    private function CheckConfiguration(array $variables): int
+    {
+        if (empty($variables)) {
+            $this->LogDebug(__FUNCTION__, 'No switch variable configured!');
+            return IS_INACTIVE;
+        }
+        foreach ($variables as $vid) {
+            if (!IPS_VariableExists($vid)) {
+                $this->LogDebug(__FUNCTION__, 'Variable #' . $vid . ' does not exist!');
+                return self::STATUS_VARIABLE_MISSING;
+            }
+            if ($this->GetVariableStatus($vid) !== 'OK') {
+                $this->LogDebug(__FUNCTION__, 'Variable #' . $vid . ' is not switchable!');
+                return self::STATUS_VARIABLE_INVALID;
+            }
+        }
+        $motion = $this->ReadPropertyInteger('MotionVariable');
+        if (($motion >= self::IPS_MIN_ID) && !IPS_VariableExists($motion)) {
+            $this->LogDebug(__FUNCTION__, 'Motion variable #' . $motion . ' does not exist!');
+            return self::STATUS_MOTION_MISSING;
+        }
+        $event = $this->ReadPropertyInteger('EventVariable');
+        if (($event >= self::IPS_MIN_ID) && !IPS_EventExists($event)) {
+            $this->LogDebug(__FUNCTION__, 'Event #' . $event . ' does not exist!');
+            return self::STATUS_SCHEDULE_MISSING;
+        }
+        $script = $this->ReadPropertyInteger('ScriptVariable');
+        if (($script >= self::IPS_MIN_ID) && !IPS_ScriptExists($script)) {
+            $this->LogDebug(__FUNCTION__, 'Script #' . $script . ' does not exist!');
+            return self::STATUS_SCRIPT_MISSING;
+        }
+        if ($this->ReadPropertyBoolean('OnlyScript') && ($script < self::IPS_MIN_ID)) {
+            $this->LogDebug(__FUNCTION__, 'Only script is set, but no script is selected!');
+            return self::STATUS_SCRIPT_REQUIRED;
+        }
+        return IS_ACTIVE;
+    }
+
+    /**
+     * Checks whether a variable without action may be set directly.
+     * Only allowed by the user and only for variables which do not belong to an instance.
+     *
+     * @param int $vid Variable ID
+     *
+     * @return bool True if the value may be set directly
+     */
+    private function IsDirectSwitchable(int $vid): bool
+    {
+        return $this->ReadPropertyBoolean('SettingsDirect') && !IPS_InstanceExists(IPS_GetParent($vid));
+    }
+
+    /**
+     * Returns the status of a given switch variable.
+     *
+     * @param int $vid Variable ID.
+     *
+     * @return string 'OK' or a translated status message
      */
     private function GetVariableStatus(int $vid): string
     {
         if (!IPS_VariableExists($vid)) {
             return $this->Translate('Missing');
-        } else {
-            $var = IPS_GetVariable($vid);
-            switch ($var['VariableType']) {
-                case VARIABLETYPE_BOOLEAN:
-                    if ($var['VariableCustomProfile'] != '') {
-                        $profile = $var['VariableCustomProfile'];
-                    } else {
-                        $profile = $var['VariableProfile'];
-                    }
-                    if (!IPS_VariableProfileExists($profile)) {
-                        return $this->Translate('Profile required');
-                    }
-                    if ($var['VariableCustomAction'] != 0) {
-                        $action = $var['VariableCustomAction'];
-                    } else {
-                        $action = $var['VariableAction'];
-                    }
-                    if (!($action > self::IPS_MIN_ID)) {
-                        return $this->Translate('Action required');
-                    }
-                    return 'OK';
-                default:
-                    return $this->Translate('Bool required');
-            }
         }
+        if (IPS_GetVariable($vid)['VariableType'] !== VARIABLETYPE_BOOLEAN) {
+            return $this->Translate('Bool required');
+        }
+        if (!HasAction($vid) && !$this->IsDirectSwitchable($vid)) {
+            return $this->Translate('Action required');
+        }
+        return 'OK';
     }
 }
